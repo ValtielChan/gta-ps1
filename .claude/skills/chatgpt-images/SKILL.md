@@ -1,0 +1,77 @@
+---
+name: chatgpt-images
+description: Generate textures, sprites, decals, reference images or concept art through ChatGPT (image generation) driven with Playwright, then convert them to PS1 textures. Use whenever the project needs a new image asset (asphalt, sidewalk, facades, windows, signs, car skins, transparent decals...).
+---
+
+# ChatGPT image generation via Playwright
+
+The user is logged in to chatgpt.com in the Playwright browser (`mcp__playwright__*`). If the page shows a
+login button, ask the user to log in in that window and wait.
+
+## Generate
+
+1. `browser_navigate https://chatgpt.com/` (new chat for each asset family; reuse a chat to iterate).
+2. `browser_snapshot` → find the textbox "Demander à ChatGPT", `browser_type` with `submit: true`.
+3. **Busy indicator = the composer button `button[aria-label="Arrêter"]`** (there is no `stop-button` testid). It
+   can vanish for a moment between "réflexion" and "esquisse", and a half-rendered "Aperçu" image is already in the
+   DOM, so a download must wait for: not busy **and** a last image visually different from the one before the prompt.
+   - Send (`browser_run_code_unsafe`): wait while busy, store the 8x8 signature of the last image in
+     `window.__prevSig`, fill the textbox, press Enter, check it became busy (else it was not sent):
+     `async (page) => { const box = page.getByRole('textbox', { name: 'Demander à ChatGPT' }); const busy = async () => (await page.locator('button[aria-label="Arrêter"]').count()) > 0; for (let i = 0; i < 60 && await busy(); i++) await page.waitForTimeout(3000); await page.evaluate(() => { const img = [...document.querySelectorAll('main img')].filter(i => i.alt.startsWith('Image générée')).pop(); if (!img) return; const c = document.createElement('canvas'); c.width = c.height = 8; c.getContext('2d').drawImage(img, 0, 0, 8, 8); window.__prevSig = Array.from(c.getContext('2d').getImageData(0, 0, 8, 8).data).map(v => v >> 5).join(''); }); await box.fill(PROMPT); await box.press('Enter'); await page.waitForTimeout(3000); return (await busy()) ? 'sent' : 'NOT SENT'; }`
+   - Download (`browser_evaluate` + `filename: "raw_<Name>.b64.txt"`, lands in the project root – move it out),
+     polls up to 170 s:
+     `async () => { const busy = () => !!document.querySelector('button[aria-label="Arrêter"]'); const sig = img => { const c = document.createElement('canvas'); c.width = c.height = 8; c.getContext('2d').drawImage(img, 0, 0, 8, 8); return Array.from(c.getContext('2d').getImageData(0, 0, 8, 8).data).map(v => v >> 5).join(''); }; const prev = window.__prevSig; const t0 = Date.now(); while (Date.now() - t0 < 170000) { const img = [...document.querySelectorAll('main img')].filter(i => i.alt.startsWith('Image générée')).pop(); if (!busy() && img && img.complete && img.naturalWidth > 0 && sig(img) !== prev) { await new Promise(r => setTimeout(r, 2500)); if (busy()) continue; window.__prevSig = sig(img); const b = await (await fetch(img.src)).blob(); return await new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); }); } await new Promise(r => setTimeout(r, 3000)); } return 'TIMEOUT'; }`
+   - Always look at a 256 px review image before installing: getting the previous image does happen.
+4. One chat per asset family, two tabs in parallel (alternate send / download between tabs).
+5. **When done, delete the conversations you created** (Fabien's request): open the chat, "…" menu (top
+   right) → Supprimer → confirm. Never touch his other conversations.
+
+## Prompt template (French works well)
+
+**Always ask for a REALISTIC photo texture.** The PS1 look comes only from `ps1ify.py` (downscale + palette),
+exactly like 90s artists reducing real textures for the hardware. Never write "PS1", "pixel art", "basse
+résolution" or "stylisé" in a prompt: it produces cartoon textures.
+
+Chat opener (style brief, once per chat):
+> On crée les textures sources d'un jeu se déroulant à Los Angeles. Chaque image est une photo-texture
+> réaliste haute définition (comme une bibliothèque de textures photo type textures.com) : matériaux réels,
+> couleurs naturelles, éclairage diffus et uniforme sans ombre portée, vue parfaitement orthogonale (de face ou
+> de dessus), aucune perspective, pas de stylisation, pas de pixel art. Noms de commerces inventés.
+
+Then: "Image suivante : <matière / objet>, tileable seamless, image carrée."
+- Transparent assets (signs, decals, foliage cards, bench, props): add "sur fond TRANSPARENT (PNG avec canal
+  alpha, pas de fond blanc ni damier)".
+- Facades: "exactement 4 m de large × 4 m de haut (UN étage)", "bords gauche/droite raccordables", "pas de trottoir".
+- Objects mapped on a few quads (bench, signal head): "vu exactement de face, remplit toute l'image".
+- Ask for variations in the same chat to keep a coherent set.
+
+## Convert to a PS1 texture
+
+```
+python -I Tools/texture/ps1ify.py <name>.b64.txt Assets/GTA/Textures/T_<Name>.png [--size 64] [--colors 32] [--trim] [--seamless] --preview
+```
+- `--size`: from the texel density rule (16 px/m): 64 for a 4 m tile (default), 32 for 2 m, 128 for 8 m.
+- `--trim`: crop a cut-out object to its opaque bounding box (the mesh restores the aspect).
+- `--crop x0 y0 x1 y1` (fractions) to cut what the model added around the tile (e.g. a sidewalk strip under a
+  shopfront: `--crop 0 0 1 0.875`).
+- `--seamless` only if the raw image does not tile (check the `_tile.png` preview first without it; the
+  cross-fade softens contrast).
+- Read the `_tile.png` preview (then move it out of Assets): seams, repetition, pixel size, average color close
+  to the matching `roadnet.COLORS` entry.
+- `Assets/GTA/Editor/ImportRules.cs` sets point filter + no compression for `Assets/GTA/Textures/`.
+
+## Existing textures (64 px per 4 m unless noted; raw sources kept in the session scratchpad `raw/`)
+
+| Group | Textures |
+|---|---|
+| Ground | Asphalt, Sidewalk (3x3 slabs), Grass (dry), Dirt (mulch), Concrete (also curbs via `Concrete__Curb`), Roof |
+| Facades (4 m bay = 1 floor) | Stucco, StuccoBay (tintable), BrickBay, OfficeBay; storefronts Shopfront (`--crop 0 0 1 0.875`), ShopDonuts, ShopLaundry, ShopLiquor, ShopTacos, ShopPharmacy, ShopBarber, ShopPawn, ShopNails, ShopPizza, ShopPhone, ShopBurger |
+| Fabrics / roof | AwningStripes (red/white), Awning (neutral, tinted `__Green`/`__Blue`), ACUnit (32), WaterTank |
+| Metals | PoleMetal (galvanized; `__Dark` tint), SignalMetal (yellow, `__Aged` tint on signals), MetalPaint (legacy neutral) |
+| Props (fitted photos) | Bench (64, `--trim`), Mailbox (32, `--trim`) + MailboxSide, NewsBoxFront (32) + NewsBoxSide, ParkingMeter (32), TrashCan (32, unrolled side, `wrap=True`), BusStopAd (32), BusStopGlass, SignalHead (32, `--trim`), LampLens (32, `--trim`, arm end at the bottom) |
+| Signs | StopSign (32), YieldSign (32, `--trim`), StreetSign (atlas of 4 rows), ExitSign (128, `--trim`) |
+| Vegetation (alpha) | LeafCard, PalmFrond (fan, stem at bottom), GrassTuft (32); Bark, PalmTrunk |
+| Procedural / derived | MarkThin/Wide/Bar (`Tools/texture/marks.py`), `T_Leaves` (LeafCard composited 4x on dark green), `T_Imp_*` (`kit.render_impostor`) |
+
+The first batch (ground, facades, vegetation, signs) came from stylized prompts before the "realistic source"
+rule; Fabien judged them fine once degraded - keep them.
