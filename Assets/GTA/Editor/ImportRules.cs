@@ -17,22 +17,47 @@ class ImportRules : AssetPostprocessor
     bool IsGenerated => assetPath.StartsWith("Assets/GTA/City/") || assetPath.StartsWith("Assets/GTA/DA/") ||
                         assetPath.StartsWith("Assets/GTA/Props/");
     bool IsCar => assetPath.StartsWith("Assets/GTA/Cars/");   // same material rules, no mesh colliders (rigidbody)
+    bool IsNpc => assetPath.StartsWith("Assets/GTA/NPC/");    // Tools/citygen/npc.py: Humanoid rig, looping clips
 
     void OnPreprocessModel()
     {
-        if (!IsGenerated && !IsCar) return;
+        if (!IsGenerated && !IsCar && !IsNpc) return;
         var mi = (ModelImporter)assetImporter;
         mi.indexFormat = ModelImporterIndexFormat.UInt32;
         mi.importNormals = ModelImporterNormals.Import;
-        mi.importAnimation = false;
+        mi.importAnimation = IsNpc;
         mi.importCameras = false;
         mi.importLights = false;
         mi.materialImportMode = ModelImporterMaterialImportMode.ImportViaMaterialDescription;
+        if (IsNpc)
+        {
+            // Humanoid: Art/NPC/hero.fbx (characters) and the mocap library FBX (Assets/GTA/NPC/Anims) share one
+            // avatar definition, so any humanoid clip (Quaternius UAL, Mixamo) drives every pedestrian.
+            mi.animationType = ModelImporterAnimationType.Human;
+            mi.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            mi.bakeAxisConversion = true;   // asked by the UAL setup sheet (Art/NPC/UAL/Unity_Setup.png)
+            mi.importBlendShapes = false;
+            mi.optimizeGameObjects = false;
+        }
+    }
+
+    void OnPreprocessAnimation()
+    {
+        if (!IsNpc) return;
+        var mi = (ModelImporter)assetImporter;
+        var clips = mi.defaultClipAnimations;
+        foreach (var c in clips)
+        {
+            c.name = c.name.Substring(c.name.LastIndexOf('|') + 1);   // "Rig|Walk_Loop" -> "Walk_Loop"
+            c.loopTime = c.name.EndsWith("_Loop");                      // Quaternius UAL convention
+            c.loopPose = c.loopTime;
+        }
+        mi.clipAnimations = clips;
     }
 
     void OnPreprocessMaterialDescription(MaterialDescription description, Material material, AnimationClip[] clips)
     {
-        if (!IsGenerated && !IsCar) return;
+        if (!IsGenerated && !IsCar && !IsNpc) return;
         string name = description.materialName;
         int sep = name.IndexOf("__");
         string texPath = TexDir + "T_" + (sep >= 0 ? name.Substring(0, sep) : name) + ".png";

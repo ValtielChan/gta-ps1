@@ -390,6 +390,32 @@ def sign(mb, p, z, face, kind):
         mb.cyl(c + f * 0.05, c + f * 0.08, 0.5, 3, 'YieldSign', math.pi, cap_uv=True, back_mat='PoleMetal')
 
 
+def hermite(p0, t0, p1, t1):
+    """Cubic Hermite from 3D point p0 (2D tangent t0) to p1 (tangent t1), sampled every ~2 m, z lerped."""
+    P0, P1 = V(*p0), V(*p1)
+    m = (P1 - P0).to_2d().length
+    T0, T1 = V(t0.x, t0.y, 0) * m, V(t1.x, t1.y, 0) * m
+    k = max(3, math.ceil(m / 2.0))
+    pts = []
+    for i in range(k + 1):
+        t = i / k
+        q = P0 * (2 * t ** 3 - 3 * t * t + 1) + T0 * (t ** 3 - 2 * t * t + t) + P1 * (-2 * t ** 3 + 3 * t * t) + T1 * (t ** 3 - t * t)
+        pts.append((q.x, q.y, lerp(p0[2], p1[2], t)))
+    return pts
+
+
+def lane_speed(prof):
+    """Traffic speed limit (m/s) by road type: highway 100 km/h, rural 70, avenue 50, street 40, ramp 45."""
+    kinds = [k for k, _ in prof.left + prof.right]
+    if 'mbarrier' in kinds:
+        return 28.0
+    if prof.oneway:
+        return 12.5
+    if 'sidewalk' not in kinds:
+        return 20.0
+    return 14.0 if sum(1 for k, w in prof.right if k == 'lane') >= 2 else 11.0
+
+
 # ------------------------------------------------------------------ profiles
 class Profile:
     """Cross-section. left/right: [(kind, width)] from the centerline outward.
@@ -426,7 +452,7 @@ class Profile:
 
     def section(self, fl=1.0, fr=1.0):
         """Closed section [(lat, h)] left->right over the top then back under; h None = bottom.
-        mats[i] is the material of segment i -> i+1 (cyclic). fl/fr scale edge barriers."""
+        mats[i] is the material of segment i -> i+1 (cyclic). fl/fr fade edge barrier heights."""
         def half(strips, f):
             pts = [(0.0, 0.85 if strips and strips[0][0] == 'mbarrier' else 0.0)]
             mats, x = [], 0.0
@@ -437,8 +463,7 @@ class Profile:
                     pts.append((x + w, 0.0)); mats.append('Asphalt')
                 elif kind == 'sidewalk':
                     pts += [(x, CURB_H), (x + w, CURB_H)]; mats += ['Concrete__Curb', 'Sidewalk']
-                elif kind == 'barrier':
-                    w *= f
+                elif kind == 'barrier':   # fades by height only (down to a flat strip), never by width
                     pts += [(x + 0.2 * w, 0.3 * f), (x + 0.4 * w, 0.85 * f), (x + w, 0.85 * f)]
                     mats += ['Concrete'] * 3
                 x += w
@@ -494,10 +519,13 @@ class Edge:
         return self.pa.lerp(self.pb, s / self.L)
 
     def barrier_f(self, s, side):
-        f = clamp((self.z(s) - 0.3) / 1.2)
+        """Barrier scale: full height everywhere (also at grade), sloped ends at junctions and no_barrier gaps."""
+        f = 1.0
         sa, sb = self.no_barrier.get(side, (0.0, 0.0))
         if sa: f *= clamp((s - sa) / 10.0)
         if sb: f *= clamp((self.L - sb - s) / 10.0)
+        if self.t['A']: f *= clamp((s - self.t['A']) / 3.0)
+        if self.t['B']: f *= clamp((self.L - self.t['B'] - s) / 3.0)
         return f
 
     def samples(self):
@@ -513,6 +541,7 @@ class Edge:
 class Net:
     def __init__(self):
         self.nodes, self.edges, self.signs, self.warnings = [], [], [], []
+        self.gores = []        # (highway edge, ramp edge): solid median between their facing barriers
         self.placements = []   # (prefab, x, y, z, yaw): repeated props become Unity prefab instances
 
     def node(self, x, y, z=0.0, kind='auto', control=None, curb_r=8.0, ring=None):
@@ -538,6 +567,11 @@ class Net:
     def exit_sign(self, e, s, side='R'):
         self.signs.append((e, s, side))
 
+    def gore(self, hw, ramp):
+        """Ramp leaving / joining hw side by side: its facing barrier and hw's sit back to back from the nose;
+        the gap between them is capped into one solid median until the decks are apart."""
+        self.gores.append((hw, ramp))
+
     # -------------------------------------------------------------- build
     def build(self):
         out = {'Roads': Mesh('Roads'), 'Markings': Mesh('Markings'), 'Props': Mesh('Props')}
@@ -552,7 +586,218 @@ class Net:
         self._lamps(out['Props'])
         for e, s, side in self.signs:
             self._exit_sign(out['Props'], e, s, side)
+        for hw, rp in self.gores:
+            self._gore(out['Roads'], hw, rp)
         return out
+
+    # -------------------------------------------------------------- pedestrians
+    def ped_graph(self, cross_at=2.5):
+        """Pedestrian network for the Unity crowd (call after build()): the middle line of every sidewalk along the
+        edges, around every junction corner, through plain nodes, and across every crosswalk (cross_at m past the
+        setback, where the bars are). Returns (points [(x, y, z)], links [(i, j, crossing)]), Blender coordinates."""
+        pts, links, ends = [], [], {}
+
+        def chain(poly, cross=False):
+            ids = []
+            for p, z in poly:
+                pts.append((p.x, p.y, z))
+                ids.append(len(pts) - 1)
+            links.extend((a, b, cross) for a, b in zip(ids, ids[1:]))
+            return ids
+
+        for e in self.edges:
+            s0, s1 = e.t['A'], e.L - e.t['B']
+            if s1 - s0 < 0.5:
+                continue
+            anchors = {'A': s0 + cross_at, 'B': s1 - cross_at}
+            ss = sorted(set(e.samples() + [s for s in anchors.values() if s0 < s < s1]))
+            for side in 'LR':
+                if any(e.prof(s).walk(side) <= 0 for s in ss):
+                    continue
+                poly = []
+                for s in ss:
+                    p, d = e.frame(s)
+                    pr = e.prof(s)
+                    poly.append((p + (left(d) if side == 'L' else right(d)) * (pr.asphalt(side) + pr.walk(side) / 2), e.z(s) + CURB_H))
+                ids = chain(poly)
+                ends[(id(e), side, 'A')], ends[(id(e), side, 'B')] = ids[0], ids[-1]
+                for end, s in anchors.items():
+                    if s in ss:
+                        ends[(id(e), side, end, 'x')] = ids[ss.index(s)]
+
+        def link(ka, kb, cross=False):
+            if ka in ends and kb in ends:
+                links.append((ends[ka], ends[kb], cross))
+
+        for n in self.nodes:
+            if n.k == 'plain':   # straight through: left of one arm continues on the right of the other
+                if len(n.edges) == 2:
+                    a, b = [self._arm(n, e, end) for e, end in n.edges]
+                    link((id(a.e), a.ls, a.end), (id(b.e), b.rs, b.end))
+                    link((id(a.e), a.rs, a.end), (id(b.e), b.ls, b.end))
+                continue
+            z = n.z + CURB_H
+            for c in n.corners:
+                a, b = c.a, c.b
+                ka, kb = (id(a.e), a.ls, a.end), (id(b.e), b.rs, b.end)
+                if not c.outer or ka not in ends or kb not in ends:
+                    continue
+                wa, wb = a.swL or b.swR, b.swR or a.swL
+                mid = dedupe(offset_right(c.curb, wa / 2, wb / 2, a.l, -b.l))
+                ids = chain([(p, z) for p in mid[1:-1]]) if len(mid) > 2 else []
+                path = [ends[ka]] + ids + [ends[kb]]   # chain() already linked the inner points
+                links.append((path[0], path[1], False))
+                if len(path) > 2:
+                    links.append((path[-2], path[-1], False))
+            if n.control:
+                for a in n.arms:
+                    if a.swL and a.swR:
+                        link((id(a.e), a.ls, a.end, 'x'), (id(a.e), a.rs, a.end, 'x'), True)
+        return pts, links
+
+    # -------------------------------------------------------------- traffic
+    def traffic_graph(self):
+        """Lane graph for the Unity traffic (call after build()). One polyline per lane in travel order (drive on
+        the right: right-side lanes run A->B, left-side B->A, one-way edges A->B with one centre lane), tapered
+        lanes (highway exits / entrances) start or end on their neighbour lane, junction connectors (straight /
+        right / left Hermite curves), roundabout ring + entries / exits. A lane whose last point lies on another
+        lane's first point continues into it ('next'). Blender coordinates.
+        Returns (lanes [{'pts', 'speed', 'junction', 'turn', 'arm', 'next'}], junctions [{'control', 'x', 'y'}]);
+        turn: 0 straight, 1 right, 2 left, 3 ring, 5 exit, 6 merge (tapered lanes); arm: signal group (0 = E-W, 1 = N-S)."""
+        MIN, BLEND = 2.0, 40.0
+        lanes, junctions = [], []
+        arrive, depart = {}, {}   # (id(e), end) -> [(distance from the centre, lane id)] ending at / starting from that end
+
+        def add(pts, speed, junction=-1, turn=0, arm=-1):
+            lanes.append({'pts': pts, 'speed': speed, 'junction': junction, 'turn': turn, 'arm': arm, 'next': []})
+            return len(lanes) - 1
+
+        for e in self.edges:
+            if e.L - e.t['A'] - e.t['B'] < 0.5:
+                continue
+            ss = e.samples()
+            s0, s1 = ss[0], ss[-1]
+            speed = lane_speed(e.pa)
+            w_at = lambda side, k, s: lerp(e.pa.side(side)[k][1], e.pb.side(side)[k][1], s / e.L)
+            merged = e.pa.oneway and e.pa.left and e.pa.right and e.pa.left[0][0] == e.pa.right[0][0] == 'lane'
+
+            def W(d, s):
+                side, k, _ = d
+                return w_at('L', 0, s) + w_at('R', 0, s) if side == 'C' else w_at(side, k, s)
+
+            def X(d, s):   # lane centre, + = right of the edge direction
+                side, k, _ = d
+                if side == 'C':
+                    return (w_at('R', 0, s) - w_at('L', 0, s)) / 2
+                x = sum(w_at(side, j, s) for j in range(k)) + w_at(side, k, s) / 2
+                return x if side == 'R' else -x
+
+            descs = [('C', 0, True)] if merged else []
+            for side in 'LR':
+                for k, (kind, _) in enumerate(e.pa.side(side)):
+                    if kind == 'lane' and not (merged and k == 0):
+                        descs.append((side, k, side == 'R' or e.pa.oneway))   # (side, strip, travels A->B)
+            spans, splits = {}, {}
+            for d in descs:
+                w0, w1 = W(d, 0), W(d, e.L)
+                if w0 >= MIN and w1 >= MIN:
+                    spans[d] = (s0, s1, None)
+                elif w0 >= MIN or w1 >= MIN:
+                    sc = (MIN - w0) / (w1 - w0) * e.L
+                    if w1 >= MIN and sc > s0:
+                        spans[d] = (sc, s1, sc)
+                    elif w0 >= MIN and sc < s1:
+                        spans[d] = (s0, sc, sc)
+                    else:
+                        spans[d] = (s0, s1, None)
+            full = [d for d, (_, _, sa) in spans.items() if sa is None]
+            nbr = {}
+            for d, (lo, hi, sa) in spans.items():
+                if sa is not None:
+                    nbr[d] = min((f for f in full if f[0] == d[0]), key=lambda f: abs(X(f, sa) - X(d, sa)))
+                    splits.setdefault(nbr[d], set()).add(sa)
+            for d, (lo, hi, sa) in spans.items():
+                S = sorted({s for s in ss if lo <= s <= hi} | {lo, hi} | {sp for sp in splits.get(d, ()) if lo < sp < hi})
+                pts = []
+                for s in S:
+                    x = X(d, s)
+                    if sa is not None:   # tapered lane: leaves / joins its neighbour smoothly
+                        x = lerp(X(nbr[d], s), x, smooth(abs(s - sa) / min(BLEND, hi - lo)))
+                    p, t = e.frame(s)
+                    q = p + right(t) * x
+                    pts.append(((q.x, q.y, e.z(s)), s))
+                if not d[2]:
+                    pts.reverse()
+                cuts = [i for i, (_, s) in enumerate(pts) if s in splits.get(d, ())]
+                turn = 0 if sa is None else (5 if (hi == s1) == d[2] else 6)   # tapered: leaving (exit) or joining (merge)
+                for i0, i1 in zip([0] + cuts, cuts + [len(pts) - 1]):
+                    piece = pts[i0:i1 + 1]
+                    li = add([p for p, _ in piece], speed, turn=turn)
+                    dist = abs(X(d, piece[0][1]))
+                    if piece[0][1] == (s0 if d[2] else s1):
+                        depart.setdefault((id(e), 'A' if d[2] else 'B'), []).append((dist, li))
+                    if piece[-1][1] == (s1 if d[2] else s0):
+                        arrive.setdefault((id(e), 'B' if d[2] else 'A'), []).append((dist, li))
+
+        for n in self.nodes:
+            if n.k == 'plain':
+                continue
+            j = len(junctions)
+            ctl = {'signal': 1, 'stop': 2, 'yield': 3}.get(n.control, 0)
+            junctions.append({'control': ctl, 'x': n.p.x, 'y': n.p.y})
+            if n.k == 'roundabout':
+                self._ring_lanes(n, j, lanes, add, arrive, depart)
+                continue
+            for a in n.arms:
+                ins = sorted(arrive.get((id(a.e), a.end), []))
+                grp = 0 if abs(a.d.x) >= abs(a.d.y) else 1
+                for b in n.arms:
+                    outs = sorted(depart.get((id(b.e), b.end), []))
+                    if b is a or not ins or not outs:
+                        continue
+                    ang = wrap(angle(b.d) - angle(-a.d))
+                    if abs(ang) > 2.6:   # U-turn
+                        continue
+                    turn = 0 if abs(ang) < 0.5 else (1 if ang < 0 else 2)
+                    if turn == 0:
+                        pairs = {(ins[min(i, len(ins) - 1)][1], outs[min(i, len(outs) - 1)][1]) for i in range(max(len(ins), len(outs)))}
+                    else:
+                        pairs = {(ins[-1][1], outs[-1][1]) if turn == 1 else (ins[0][1], outs[0][1])}
+                    for li, lo in sorted(pairs):
+                        add(hermite(lanes[li]['pts'][-1], -a.d, lanes[lo]['pts'][0], b.d), (10.0, 5.0, 6.0)[turn], j, turn,
+                            grp if ctl == 1 else -1)
+
+        starts = {}
+        for i, l in enumerate(lanes):
+            x, y, _ = l['pts'][0]
+            starts.setdefault((int(x // 2), int(y // 2)), []).append(i)
+        for i, l in enumerate(lanes):
+            x, y, _ = l['pts'][-1]
+            cx, cy = int(x // 2), int(y // 2)
+            l['next'] = sorted(k for dx in (-1, 0, 1) for dy in (-1, 0, 1) for k in starts.get((cx + dx, cy + dy), ())
+                               if k != i and math.hypot(lanes[k]['pts'][0][0] - x, lanes[k]['pts'][0][1] - y) < 0.6)
+        return lanes, junctions
+
+    def _ring_lanes(self, n, j, lanes, add, arrive, depart):
+        """Roundabout: one lane around the outer ring (counter-clockwise, drive on the right), cut at every arm's
+        exit (before the arm) and entry (after it); Hermite entries / exits from the arms' lanes."""
+        # ponytail: one ring lane (the outer one); add the inner lane when the roundabout jams
+        R, z = n.ring[1] - 2.5, n.z
+        d = math.asin(3.5 / R)
+        pt = lambda th: (n.p.x + R * math.cos(th), n.p.y + R * math.sin(th), z)
+        tang = lambda th: V(-math.sin(th), math.cos(th))
+        ring = lambda a0, a1: [(p.x, p.y, z) for p in arc(n.p, R, a0, a1, step=math.radians(5))]
+        m = len(n.arms)
+        for i, a in enumerate(n.arms):
+            b = n.arms[(i + 1) % m]
+            th_exit, th_entry = a.ang - d, a.ang + d
+            nb_exit = (b.ang if i + 1 < m else b.ang + 2 * math.pi) - d
+            add(ring(th_exit, th_entry), 7.0, j, 3)
+            add(ring(th_entry, nb_exit), 7.0, j, 3)
+            for _, li in arrive.get((id(a.e), a.end), []):
+                add(hermite(lanes[li]['pts'][-1], -a.d, pt(th_entry), tang(th_entry)), 6.0, j, 0)
+            for _, lo in depart.get((id(a.e), a.end), []):
+                add(hermite(pt(th_exit), tang(th_exit), lanes[lo]['pts'][0], a.d), 5.0, j, 1)
 
     def _arm(self, n, e, end):
         if end == 'A':
@@ -616,13 +861,9 @@ class Net:
                 c.curb = [pa, pb]
             wa, wb = a.swL, b.swR
             if wa > 0 or wb > 0:
-                if c.kind == 'fillet':
-                    s = line_cross(n.p + a.l * (a.hwL + wa), a.d, n.p - b.l * (b.hwR + wb), b.d)
-                    if s and -0.5 < s[0] <= a.t + 0.01 and -0.5 < s[1] <= b.t + 0.01:
-                        K = n.p + a.l * (a.hwL + wa) + a.d * s[0]
-                        c.outer = dedupe([P(n, a, a.t, a.hwL + wa), K, P(n, b, b.t, -(b.hwR + wb))])
-                if c.outer is None:
-                    c.outer = offset_right(c.curb, wa, wb, a.l, -b.l)
+                # back edge concentric with the curb: constant width around the corner; facing an arm
+                # without sidewalk (ramp) the sidewalk keeps its width and is capped at that arm's setback
+                c.outer = offset_right(c.curb, wa or wb, wb or wa, a.l, -b.l)
                 if c.kind == 'fillet':
                     n.block_corners.append(((a.d + b.d).normalized(), c.outer))
 
@@ -694,7 +935,8 @@ class Net:
                     poly.pop()
                 R.fill([poly], z + CURB_H, 'Sidewalk')
                 R.wall(c.curb, z + CURB_H, z, 'Concrete__Curb', face_left=True)
-                R.wall(c.outer, z + CURB_H, GROUND_Z, 'Concrete__Curb')
+                cap_a, cap_b = c.curb[:1] * (not c.a.swL), c.curb[-1:] * (not c.b.swR)   # close a sidewalk facing a ramp
+                R.wall(cap_a + c.outer + cap_b, z + CURB_H, GROUND_Z, 'Concrete__Curb')
             else:
                 R.wall(c.curb, z, GROUND_Z, 'Concrete')
         ctl = n.control
@@ -825,6 +1067,47 @@ class Net:
                     M.mark(pts, 0.12 if style == 'dashed' else 0.15, ma[2] == 'Y')
 
     # -------------------------------------------------------------- props
+    def _gore(self, R, hw, rp, max_gap=1.5):
+        def proj(p):   # (distance, s, lateral) of 2D p on hw's centerline
+            best = None
+            for i, (a, b) in enumerate(zip(hw.line, hw.line[1:])):
+                ab = b - a
+                t = clamp((p - a).dot(ab) / ab.length_squared)
+                q = a + ab * t
+                c = ((p - q).length, hw.cum[i] + t * ab.length, right(ab.normalized()).dot(p - q))
+                best = c if best is None or c[0] < best[0] else best
+            return best
+
+        def back(e, s, side):   # top / bottom of the barrier's back face
+            p, tan = e.frame(s)
+            p = p + right(tan) * ((1 if side == 'R' else -1) * e.prof(s).width(side))
+            z = e.z(s)
+            return V(p.x, p.y, z + 0.85 * e.barrier_f(s, side)), V(p.x, p.y, GROUND_Z if z < SOLID_BELOW else z - DECK_T)
+
+        ss = rp.samples()
+        if proj(rp.b.p)[0] < proj(rp.a.p)[0]:
+            ss = ss[::-1]
+        p, tan = rp.frame(ss[0])
+        s1 = proj(p)[1]
+        side_r = 'R' if right(tan).dot(hw.at(s1) - p) > 0 else 'L'
+        side_h = 'R' if proj(p)[2] > 0 else 'L'
+        rows = []
+        for s in ss:
+            rt, rb = back(rp, s, side_r)
+            ht, hb = back(hw, proj(rt.to_2d())[1], side_h)
+            rows.append([rt, ht, hb, rb])
+            if (ht - rt).to_2d().length > max_gap:
+                break
+
+        def quad(q, want):
+            n = (q[1] - q[0]).cross(q[2] - q[0]) + (q[2] - q[0]).cross(q[3] - q[0])
+            R.face(q if n.dot(want) > 0 else q[::-1], 'Concrete')
+        up = V(0, 0, 1)
+        for a, b in zip(rows, rows[1:]):
+            quad([a[0], a[1], b[1], b[0]], up)
+            quad([a[3], a[2], b[2], b[3]], -up)
+        quad(rows[-1], rows[-1][0] - rows[-2][0])
+
     def _pillars(self, R):
         for e in self.edges:
             s = e.t['A'] + 16.0

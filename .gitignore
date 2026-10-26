@@ -33,3 +33,6 @@ crashlytics-build.properties
 __pycache__/
 *.pyc
 *.blend1
+
+# Unity performance test runner output (generated at build time)
+/Assets/Resources/PerformanceTestRun*

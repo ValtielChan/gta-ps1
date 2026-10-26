@@ -23,6 +23,9 @@ result = city_demo.build(export=r'F:\Develop\Unity_Project\GTA PS1\Assets\GTA\Ci
 ```
 Exporting also writes `CityDemo_placements.json` + the prefab FBX files; then in Unity run GTA > Place Props In
 Open Scene (or `PropPlacer.Run()` from MCP) on the scene. `result['warnings']` must be empty (a warning = an edge eaten by its junction setbacks → move nodes apart).
+It also writes `CityDemo_peds.json`, the pedestrian graph (`Net.ped_graph()`: sidewalk middle lines, junction
+corners, crosswalks; Unity coordinates) walked by the crowd; `city_demo.export_peds(path)` rewrites only that file
+(works with `blender -b --python`). After a road or block change, run GTA > Setup Crowd In Open Scene in Unity.
 Build takes ~3 s. Unity reimports the FBX on focus; `Assets/GTA/Editor/CityModelImport.cs` sets 32-bit
 indices and adds a MeshCollider to every object except `Markings`. Scene: `Assets/Scenes/CityDemo.unity`.
 
@@ -62,13 +65,26 @@ indices and adds a MeshCollider to every object except `Markings`. Scene: `Asset
   `prof_b=highway(aux)` (adds a ramp-wide strip), then a `plain` node at the gore. The ramp starts at its own
   `plain` node placed laterally at `HW_EDGE + RAMP_W/2`, tangent to the highway, curves away (S-curve via
   `smooth`), descends with `flat` at the street end, and joins a normal signalised junction.
-  Use `no_barrier` (~70 m) on the sides facing each other right after a gore. See `build_net()` sides loop.
+  At the gore the facing barriers stand on the shoulders (highway `gore=True` shoulder 2.5, ramp left shoulder 1.0),
+  so they meet **back to back** at the seam – never let one barrier stand on the other road (they cross into an X).
+  `net.gore(hw_edge, ramp_edge)` caps the gap between them into one solid median until they are 1.5 m apart,
+  then they split. They rise from the nose (`no_barrier` = `GAP` = 1 m) over 10 m. See `build_net()` sides loop.
+- **Barriers** (`barrier` strips) are full height everywhere, at grade too. Fades (3 m into a junction, 10 m after a
+  `no_barrier` point) lower the height down to a flat strip at road level – the width never changes (no needles).
+- **Corner sidewalks** keep a constant width around the curb fillet (back edge concentric, so block lots have
+  rounded corners). Facing an arm without sidewalk (ramp), the sidewalk keeps its width and is capped there.
 - **Bridges / overpasses**: an edge with z > 3 m becomes a deck with pillars (auto-skipped near at-grade roads
   and junctions). Crossing edges need no node; keep ≥ 6 m vertical clearance.
 - **Blocks**: `node.block_corners` gives each corner's sidewalk outline → `city_demo.blocks()` builds lots
-  exactly matching the sidewalks, then parcels/buildings inside.
+  exactly matching the sidewalks, then parcels/buildings inside (`style_for`: towers downtown, brick / stucco
+  mid-rise, apartments / spanish / strip malls outside). Parks get a hedge with entrances, bushes in groups and
+  benches; parking lots a chain-link fence with shrubs (`kit.fence` / `kit.hedge` stamped into one mesh each);
+  apartment fronts get corner shrubs. Street-name signs on every grid junction, power poles + wires on the rural loop.
 
 ## Verify before handing over
+
+Always render the exact spot you changed in Unity (camera clone → RenderTexture → PNG, several street-level angles
+plus one from above), judge it critically and keep fixing until it looks right. Never hand over a visible defect.
 
 1. Top-down ortho renders (Workbench, `view_transform='Standard'`) of the whole map and close-ups of: a 4-way,
    a T, the roundabout, a gore/split, a ramp landing. Look for green slivers (holes), overlaps, marks on the

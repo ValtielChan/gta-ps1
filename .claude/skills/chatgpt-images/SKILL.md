@@ -43,7 +43,9 @@ Then: "Image suivante : <matière / objet>, tileable seamless, image carrée."
   alpha, pas de fond blanc ni damier)".
 - Facades: "exactement 4 m de large × 4 m de haut (UN étage)", "bords gauche/droite raccordables", "pas de trottoir".
 - Objects mapped on a few quads (bench, signal head): "vu exactement de face, remplit toute l'image".
-- Ask for variations in the same chat to keep a coherent set.
+- Ask for variations in the same chat to keep a coherent set, and **name the exact wall** of the family in every
+  prompt of a family ("le même mur en briques ROUGE-BRUN avec le même soubassement..."). Then convert the family
+  with `Tools/texture/facades.py` (color transfer onto the reference bay): never ship a bay that does not match.
 
 ## Convert to a PS1 texture
 
@@ -52,6 +54,7 @@ python -I Tools/texture/ps1ify.py <name>.b64.txt Assets/GTA/Textures/T_<Name>.pn
 ```
 - `--size`: from the texel density rule (16 px/m): 64 for a 4 m tile (default), 32 for 2 m, 128 for 8 m.
 - `--trim`: crop a cut-out object to its opaque bounding box (the mesh restores the aspect).
+- `--match T_Ref.png`: shift the colors so the wall seen on the side strips matches the reference (families).
 - `--crop x0 y0 x1 y1` (fractions) to cut what the model added around the tile (e.g. a sidewalk strip under a
   shopfront: `--crop 0 0 1 0.875`).
 - `--seamless` only if the raw image does not tile (check the `_tile.png` preview first without it; the
@@ -65,8 +68,9 @@ python -I Tools/texture/ps1ify.py <name>.b64.txt Assets/GTA/Textures/T_<Name>.pn
 | Group | Textures |
 |---|---|
 | Ground | Asphalt, Sidewalk (3x3 slabs), Grass (dry), Dirt (mulch), Concrete (also curbs via `Concrete__Curb`), Roof |
-| Facades (4 m bay = 1 floor) | Stucco, StuccoBay (tintable), BrickBay, OfficeBay; storefronts Shopfront (`--crop 0 0 1 0.875`), ShopDonuts, ShopLaundry, ShopLiquor, ShopTacos, ShopPharmacy, ShopBarber, ShopPawn, ShopNails, ShopPizza, ShopPhone, ShopBurger |
-| Fabrics / roof | AwningStripes (red/white), Awning (neutral, tinted `__Green`/`__Blue`), ACUnit (32), WaterTank |
+| Facade families (4 m bay = 1 floor, converted by `Tools/texture/facades.py`) | red brick: BrickBay, Brick, BrickGround, BrickEntry, BrickService · buff brick: BrickBayB, BrickB, BrickBService · white stucco (tintable): AptBay, Stucco, StuccoBay, SpanishBay, AptEntry, AptGround, StuccoService · granite: OfficeGround, OfficeLobby, GraniteService, GraniteGarage · deco: DecoBay, DecoEntry, DecoWall · OfficeBay, ConcreteBay, GlassBay |
+| Storefronts (4 m) | Shopfront (`--crop 0 0 1 0.875`), ShopDonuts, ShopLaundry, ShopLiquor, ShopTacos, ShopPharmacy, ShopBarber, ShopPawn, ShopNails, ShopPizza, ShopPhone, ShopBurger, ShopCafe, ShopMercado, ShopVideo, ShopChinese, ShopCheck · 8 m × 4 m (`--crop 0 0 1 1 --width 128`): ShopMarket, ShopBank |
+| Fabrics / roof | AwningStripes (red/white), AwningGreen, AwningBlue, Awning (neutral, `__Green`/`__Blue`/`__Wine`), ACUnit (32), WaterTank |
 | Metals | PoleMetal (galvanized; `__Dark` tint), SignalMetal (yellow, `__Aged` tint on signals), MetalPaint (legacy neutral) |
 | Props (fitted photos) | Bench (64, `--trim`), Mailbox (32, `--trim`) + MailboxSide, NewsBoxFront (32) + NewsBoxSide, ParkingMeter (32), TrashCan (32, unrolled side, `wrap=True`), BusStopAd (32), BusStopGlass, SignalHead (32, `--trim`), LampLens (32, `--trim`, arm end at the bottom) |
 | Signs | StopSign (32), YieldSign (32, `--trim`), StreetSign (atlas of 4 rows), ExitSign (128, `--trim`) |

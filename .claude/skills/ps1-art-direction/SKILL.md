@@ -45,7 +45,15 @@ Reference scene: `Assets/Scenes/DAScene.unity` (built by `Tools/citygen/da_scene
 - **Repeated objects are prefabs** (`kit.PREFABS`): exported one by one to `Assets/GTA/Props/<Name>.fbx`, placed
   from `<Scene>_placements.json` by `PropPlacer` (Unity menu GTA > Place Props In Open Scene). Unique things
   (buildings with their random shops, fences, hedges, roads) stay in the scene FBX.
-- Storefronts: one shop per 4 m bay, `kit.next_shop` never reuses one of the last 3 -> no shop twice in a row.
+- **Buildings = one material family** (`kit.STYLES`): upper bay, blind wall, ground floor, entrance, service door and
+  garage all share the same wall (red brick + stone plinth, buff brick, white stucco tinted per building, granite +
+  terracotta deco...). Never mix a bay of another material on a facade. Each family is color-matched to its reference
+  bay by `Tools/texture/facades.py` (`ps1ify --match`); add any new bay of a family there and re-run it.
+- Ground floors follow a program per side (`kit.ground_program`): street front = shops (strip / buff brick, with
+  sometimes a whole 8 m store), mixed (shops around the residents' entrance), residential (entrance every ~20 m,
+  windows, rare corner store) or office (lobby + glazing, corner cafe); back = service door / garage of the family.
+- Storefronts: `kit.next_shop` never reuses one of the last 3. Fabric awnings on ~25 % of shops only, hung under the
+  sign band, fabric picked among `kit.AWNINGS`.
 
 ## Geometry & vegetation
 

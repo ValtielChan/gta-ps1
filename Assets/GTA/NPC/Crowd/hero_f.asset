@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7d5d8c37835cbf14582002732aff25d3, type: 3}
+  m_Name: hero_f
+  m_EditorClassIdentifier: 
+  mesh: {fileID: 4300000, guid: 1e0425523b69c174692b87bc9359cee3, type: 2}
+  material: {fileID: 2100000, guid: 42ae8c67d796167498ea2817790b4765, type: 2}
+  skins:
+  - {fileID: 2100000, guid: ef37d0b02a430484d9d1c4ac7a2f6fcb, type: 2}
+  - {fileID: 2100000, guid: 725e902ddb7e2c34593d20b98274fd74, type: 2}
+  - {fileID: 2100000, guid: 14ae60a6fb782dc49a7defcc8a4f805c, type: 2}
+  - {fileID: 2100000, guid: 38c7d57dc2a989949a4cd46665dce9fb, type: 2}
+  - {fileID: 2100000, guid: 34560256fb9397f4d909e7778f9f29c7, type: 2}
+  - {fileID: 2100000, guid: e80e7171b8c94c64093cf01c7d9f826c, type: 2}
+  - {fileID: 2100000, guid: fe31aa9a5a97a8741af2bf68b7d80af6, type: 2}
+  clipStart: 00000000320000004d0000006e000000a9000000
+  clipFrames: 320000001b000000210000003b0000003b000000
+  clips:
+  - {fileID: 4925837963642883786, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: -8349492526526354690, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: 8641533986716418156, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: 1237075774167146373, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: -1229897029741140301, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  fps: 20
+  ragdoll: {fileID: 9098159656405847711, guid: 5bdb7ff70dc33724187094b12ab887c5, type: 3}

@@ -15,12 +15,14 @@ from roadnet import V, Mesh
 
 FLOOR = 4.0   # one floor = one 4 m texture row
 
+TINTS = {'Beige': (0.95, 0.85, 0.70), 'Pink': (0.98, 0.78, 0.72), 'Peach': (1.0, 0.86, 0.70),
+         'Mint': (0.82, 0.93, 0.84), 'Sky': (0.84, 0.90, 0.98), 'White': (1, 1, 1)}
+TINTABLE = ('Stucco', 'StuccoBay', 'AptBay', 'AptEntry', 'AptGround', 'SpanishBay', 'StuccoService')   # neutral white textures
+rn.COLORS.update({'%s__%s' % (b, t): c for b in TINTABLE for t, c in TINTS.items()})
 rn.COLORS.update({
-    'StuccoBay__Beige': (0.95, 0.85, 0.70), 'StuccoBay__Pink': (0.98, 0.78, 0.72),
-    'Stucco__Beige': (0.95, 0.85, 0.70), 'Stucco__Pink': (0.98, 0.78, 0.72), 'Stucco__White': (1, 1, 1),
     'Leaves__Bush': (0.75, 0.85, 0.70), 'LeafCard__Bush': (0.75, 0.85, 0.70),
     'PalmTrunk__Dark': (0.55, 0.45, 0.35), 'PoleMetal__Dark': (0.30, 0.30, 0.32),
-    'Awning__Green': (0.35, 0.62, 0.42), 'Awning__Blue': (0.38, 0.52, 0.80),
+    'Awning__Green': (0.35, 0.62, 0.42), 'Awning__Blue': (0.38, 0.52, 0.80), 'Awning__Wine': (0.62, 0.24, 0.26),
 })
 
 
@@ -40,34 +42,98 @@ def oface(m, pts, mat, center, uvs=None):
 
 # ------------------------------------------------------------------ buildings
 SHOPS = ('Shopfront', 'ShopDonuts', 'ShopLaundry', 'ShopLiquor', 'ShopTacos', 'ShopPharmacy', 'ShopBarber',
-         'ShopPawn', 'ShopNails', 'ShopPizza', 'ShopPhone', 'ShopBurger')   # 4 m x 4 m storefronts
+         'ShopPawn', 'ShopNails', 'ShopPizza', 'ShopPhone', 'ShopBurger', 'ShopCafe', 'ShopMercado', 'ShopVideo',
+         'ShopChinese', 'ShopCheck')   # 4 m x 4 m storefronts, sign band 2.7-3.9 m
+WIDE_SHOPS = ('ShopMarket', 'ShopBank')   # 8 m x 4 m: a whole store front
+AWNINGS = ('AwningStripes', 'AwningGreen', 'AwningBlue', 'Awning__Green', 'Awning__Blue', 'Awning__Wine')
 _last_shops = []
 
 
-def next_shop(rnd):
+def next_shop(rnd, pool=SHOPS):
     """Random storefront, never one of the last 3 used (no shop twice in a row, little visible repetition)."""
-    shop = rnd.choice([s for s in SHOPS if s not in _last_shops[-3:]])
+    shop = rnd.choice([s for s in pool if s not in _last_shops[-3:]])
     _last_shops.append(shop)
     return shop
 
 
 STYLES = {
-    # ground floor, upper floors, blind walls / parapet, roof, awning canvas
-    'strip':  dict(ground='Shopfront', upper=None, wall='Stucco__Beige', roof='Roof', awning='AwningStripes'),
-    'stucco': dict(ground='Shopfront', upper='StuccoBay__Pink', wall='Stucco__Pink', roof='Roof', awning='Awning__Green'),
-    'brick':  dict(ground='Shopfront', upper='BrickBay', wall='Concrete', roof='Roof', awning='Awning__Blue'),
-    'office': dict(ground='Shopfront', upper='OfficeBay', wall='Concrete', roof='Roof', awning=None),
+    # One material family per building (textures color-matched by Tools/texture/facades.py): upper floor bay,
+    # wall (blind walls / parapet), entry / ground (ground-floor bays), service door and garage in the same material.
+    # prog: ground-floor program (ground_program); tints: random tint of the neutral stucco textures.
+    'strip':     dict(upper=None, wall='Stucco', entry=None, ground=None, service='StuccoService', garage=None,
+                      prog='shops', tints=('Beige', 'White', 'Peach', 'Pink')),
+    'apartment': dict(upper='AptBay', wall='Stucco', entry='AptEntry', ground='AptGround', service='StuccoService', garage=None,
+                      prog='residential', tints=('White', 'Beige', 'Mint', 'Sky', 'Peach')),
+    'stucco':    dict(upper='StuccoBay', wall='Stucco', entry='AptEntry', ground='AptGround', service='StuccoService', garage=None,
+                      prog='mixed', tints=('Pink', 'Beige', 'Peach')),
+    'spanish':   dict(upper='SpanishBay', wall='Stucco', entry='AptEntry', ground='AptGround', service='StuccoService', garage=None,
+                      prog='mixed', tints=('White', 'Beige', 'Peach')),
+    'brick':     dict(upper='BrickBay', wall='Brick', entry='BrickEntry', ground='BrickGround', service='BrickService', garage=None,
+                      prog='mixed'),
+    'brickb':    dict(upper='BrickBayB', wall='BrickB', entry=None, ground=None, service='BrickBService', garage=None, prog='shops'),
+    'deco':      dict(upper='DecoBay', wall='DecoWall', entry='DecoEntry', ground='OfficeGround', service='GraniteService',
+                      garage='GraniteGarage', prog='mixed'),
+    'office':    dict(upper='OfficeBay', wall='Concrete', entry='OfficeLobby', ground='OfficeGround', service='GraniteService',
+                      garage='GraniteGarage', prog='office'),
+    'concrete':  dict(upper='ConcreteBay', wall='Concrete', entry='OfficeLobby', ground='OfficeGround', service='GraniteService',
+                      garage='GraniteGarage', prog='office'),
+    'glass':     dict(upper='GlassBay', wall='Concrete', entry='OfficeLobby', ground='OfficeGround', service='GraniteService',
+                      garage='GraniteGarage', prog='office'),
 }
 
 
-def awning(m, x, y, mat, w=3.6, depth=1.2, top=3.3, low=2.6, valance=0.3):
-    """Fabric awning over a 4 m bay: sloped canvas + valance + side cheeks, stripes running down the slope."""
-    a, b = V(x - w / 2, y, top), V(x + w / 2, y, top)
-    c, d = V(x + w / 2, y - depth, low), V(x - w / 2, y - depth, low)
+def ground_program(s, role, n, rnd):
+    """Ground-floor bays of one facade (n bays of 4 m): material names, 'shop' (a storefront), 'wide' (an 8 m
+    store over this bay and the next) or None (rest of a wide store).
+    role: 'front' (street side), 'side', 'back' (block interior: service door, garage, blind wall)."""
+    wall, ground, entry = s['wall'], s['ground'] or s['wall'], s['entry']
+    if role == 'back':
+        out = [ground] * n
+        out[rnd.randrange(n)] = s['service']
+        if s['garage'] and n >= 3 and rnd.random() < 0.5:
+            out[rnd.randrange(n)] = s['garage']
+        return out
+    prog = s['prog']
+    if role == 'side':   # the corner bay continues the front (corner store), then quieter bays
+        out = [ground] * n
+        if prog == 'shops' and n > 1:
+            out[1:] = [wall] * (n - 1)
+            out[-1] = s['service']
+        if prog in ('shops', 'mixed') and rnd.random() < 0.6:
+            out[0] = 'shop'
+        return out
+    if prog == 'shops':
+        out = ['shop'] * n
+        if n >= 2 and rnd.random() < (0.5 if n == 2 else 0.65):   # a whole store (supermarket, bank)
+            k = rnd.randrange(n - 1)
+            out[k:k + 2] = ['wide', None]
+        return out
+    out = [ground] * n
+    doors = [int((i + 0.5) * n / max(1, round(n / 5))) for i in range(max(1, round(n / 5)))]   # one entrance per ~20 m
+    for k in doors if entry else ():
+        out[k] = entry
+    if prog in ('residential', 'office'):
+        if n >= 3 and rnd.random() < (0.3 if prog == 'residential' else 0.5):   # corner store / cafe
+            out[rnd.choice((0, n - 1))] = 'shop'
+    else:   # mixed use: storefronts around the residents' entrances, some plain bays
+        for k in range(n):
+            if k not in doors or not entry:
+                out[k] = 'shop' if (k in (0, n - 1) or rnd.random() < 0.65) else ground
+    return out
+
+
+def awning(m, a, b, mat, top=2.7, low=2.25, depth=1.0, valance=0.25, inset=0.3):
+    """Fabric awning over a storefront between 2D wall points a -> b (outward = right of a -> b), hung just
+    under the sign band: sloped canvas + valance + side cheeks, stripes running down the slope."""
+    d = (b - a).normalized()
+    o = rn.right(d)
+    a, b = a + d * inset, b - d * inset
+    A, B = V(a.x, a.y, top), V(b.x, b.y, top)
+    C, D = V(b.x + o.x * depth, b.y + o.y * depth, low), V(a.x + o.x * depth, a.y + o.y * depth, low)
     dv = V(0, 0, valance)
-    m.face([d, c, b, a], mat, [(0, 0), (1, 0), (1, 1), (0, 1)])
-    m.face([d - dv, c - dv, c, d], mat, [(0, 0), (1, 0), (1, 0.25), (0, 0.25)])
-    for p, q in ((a, d), (b, c)):          # side cheeks, double-sided
+    m.face([D, C, B, A], mat, [(0, 0), (1, 0), (1, 1), (0, 1)])
+    m.face([D - dv, C - dv, C, D], mat, [(0, 0), (1, 0), (1, 0.25), (0, 0.25)])
+    for p, q in ((A, D), (B, C)):          # side cheeks, double-sided
         tri = [q - dv, q, p]
         m.face(tri, mat, [(0, 0), (0, 0.3), (0.3, 1)])
         m.face(tri[::-1], mat, [(0.3, 1), (0, 0.3), (0, 0)])
@@ -78,37 +144,48 @@ def ac_unit(m, c):
     m.box(c, V(1, 0), 2.4, 1.6, 1.4, 'PoleMetal', {k: 'ACUnit' for k in ('px', 'nx', 'py', 'ny')})
 
 
-def building(style, w, d, floors, rnd, blind=('N',)):
+def bay(m, a, b, z0, z1, mat):
+    """Facade panel a -> b (2D) from z0 to z1, texture fitted once (4 m bay, or 8 m wide store)."""
+    m.face([V(a.x, a.y, z0), V(b.x, b.y, z0), V(b.x, b.y, z1), V(a.x, a.y, z1)], mat, [(0, 0), (1, 0), (1, 1), (0, 1)])
+
+
+def building(style, w, d, floors, rnd, blind=('N',), awnings=0.25):
     """Box building w (x) x d (y), front = -Y. Widths should be multiples of 4 m so window bays line up.
-    blind: sides without shops on the ground floor (windows instead; every side keeps windows upstairs since
-    towers rise above their neighbours and are seen from all around)."""
+    blind: back sides (block interior). Ground floors follow the style's program per side (ground_program);
+    upper floors keep windows on every side (towers rise above their neighbours and are seen from all around).
+    awnings: share of storefronts with a fabric awning (fabric picked per shop)."""
     s = STYLES[style]
+    tint = rnd.choice(s.get('tints') or ('',))
+    T = lambda mat: '%s__%s' % (mat, tint) if mat in TINTABLE and tint else mat
+    upper, wall = T(s['upper'] or s['wall']), T(s['wall'])
     m = Mesh('Bldg_' + style, grime(0.7, 3.0))
     H = floors * FLOOR
     c = [V(-w / 2, -d / 2), V(w / 2, -d / 2), V(w / 2, d / 2), V(-w / 2, d / 2)]
     for (a, b), side in zip(zip(c, c[1:] + c[:1]), ('S', 'E', 'N', 'W')):
-        for f in range(floors):
-            back = s['upper'] or s['wall']   # back of the building: windows down to the ground, no shops
-            mat = (back if side in blind else s['ground']) if f == 0 else s['upper']
-            if f == 0 and mat == 'Shopfront':   # one shop per 4 m bay, never twice in a row
-                n = int(round((b - a).length / FLOOR))
-                for k in range(n):
-                    m.wall([a.lerp(b, k / n), a.lerp(b, (k + 1) / n)], FLOOR, 0, next_shop(rnd))
+        n = max(1, int(round((b - a).length / FLOOR)))
+        P = lambda k: a.lerp(b, k / n)
+        role = 'front' if side == 'S' else 'back' if side in blind else 'side'
+        for k, mat in enumerate(ground_program(s, role, n, rnd)):
+            if mat is None:
                 continue
-            m.wall([a, b], (f + 1) * FLOOR, f * FLOOR, mat)
+            span = 2 if mat == 'wide' else 1
+            face = next_shop(rnd, WIDE_SHOPS) if mat == 'wide' else next_shop(rnd) if mat == 'shop' else T(mat)
+            bay(m, P(k), P(k + span), 0, FLOOR, face)
+            if mat in ('shop', 'wide') and rnd.random() < awnings:
+                awning(m, P(k), P(k + span), rnd.choice(AWNINGS))
+        for f in range(1, floors):
+            for k in range(n):
+                bay(m, P(k), P(k + 1), f * FLOOR, (f + 1) * FLOOR, upper)
     par, t = 0.9, 0.3   # parapet height / thickness
     inner = [V(p.x - math.copysign(t, p.x), p.y - math.copysign(t, p.y)) for p in c]
-    m.wall(c + c[:1], H + par, H, s['wall'])
-    m.wall(inner + inner[:1], H + par, H, s['wall'], face_left=True)
+    m.wall(c + c[:1], H + par, H, wall)
+    m.wall(inner + inner[:1], H + par, H, wall, face_left=True)
     for (a, b), (ia, ib) in zip(zip(c, c[1:] + c[:1]), zip(inner, inner[1:] + inner[:1])):
         m.face([V(a.x, a.y, H + par), V(b.x, b.y, H + par), V(ib.x, ib.y, H + par), V(ia.x, ia.y, H + par)][::-1], 'Concrete')
-    m.fill([inner], H, s['roof'])
-    if s['awning']:
-        for k in range(int(w // 4)):
-            awning(m, -w / 2 + 2 + 4 * k, -d / 2, s['awning'])
+    m.fill([inner], H, 'Roof')
     for _ in range(rnd.randint(1, 3)):
         ac_unit(m, V(rnd.uniform(-w / 2 + 3, w / 2 - 3), rnd.uniform(-d / 2 + 3, d / 2 - 3), H + 0.7))
-    if style == 'brick':  # wooden water tank on steel legs
+    if style in ('brick', 'brickb') and floors > 2:  # wooden water tank on steel legs
         x, y = w / 4, d / 4
         for i in range(4):
             a = math.pi / 4 + i * math.pi / 2
@@ -116,6 +193,13 @@ def building(style, w, d, floors, rnd, blind=('N',)):
         m.cyl(V(x, y, H + 2.5), V(x, y, H + 5.5), 1.5, 8, 'WaterTank')
         m.cyl(V(x, y, H + 5.5), V(x, y, H + 6.6), 1.6, 8, 'Roof', r1=0.1)
     return m
+
+
+def corner_spot(n, toward, inset=1.0):
+    """Point on the corner sidewalk of junction n facing direction `toward`, `inset` m behind the curb."""
+    c = max((c for c in n.corners if c.kind == 'fillet'), key=lambda c: (c.a.d + c.b.d).normalized().dot(toward))
+    u = ((c.ta - c.C).normalized() + (c.tb - c.C).normalized()).normalized()
+    return c.C + u * (n.curb_r - inset)
 
 
 # ------------------------------------------------------------------ street props (prefabs: front = -Y)
@@ -155,9 +239,22 @@ def bench(w=1.7, seat=0.46, depth=0.42, back=0.5):
 
 
 def news_box():
+    """Coin-op newspaper rack: box with the front photo and a lid sloping back, coin box on top, four thin legs."""
     m = Mesh('NewsBox', grime(0.6, 0.6))
-    m.box(V(0, 0, 0.25), V(1, 0), 0.36, 0.32, 0.5, 'PoleMetal__Dark')
-    m.box(V(0, 0, 0.78), V(1, 0), 0.5, 0.45, 0.56, 'NewsBoxSide', {'ny': 'NewsBoxFront'})
+    w, d, z0, z1, z2 = 0.5, 0.42, 0.34, 0.88, 1.0   # width, depth, box bottom, front top, back top
+    m.box(V(0, 0, (z0 + z1) / 2), V(1, 0), w, d, z1 - z0, 'NewsBoxSide', {'ny': 'NewsBoxFront'})
+    a, b = V(-w / 2, -d / 2), V(w / 2, d / 2)   # sloped lid (prism over the box top)
+    m.face([V(a.x, a.y, z1), V(b.x, a.y, z1), V(b.x, b.y, z2), V(a.x, b.y, z2)], 'NewsBoxSide')
+    m.face([V(a.x, b.y, z1), V(b.x, b.y, z1), V(b.x, b.y, z2), V(a.x, b.y, z2)][::-1], 'NewsBoxSide')
+    for x in (a.x, b.x):
+        tri = [V(x, a.y, z1), V(x, b.y, z1), V(x, b.y, z2)]
+        m.face(tri if x > 0 else tri[::-1], 'NewsBoxSide')
+    m.box(V(0.15, 0.12, z2), V(1, 0), 0.1, 0.08, 0.07, 'PoleMetal__Dark')    # coin mechanism
+    for x in (-0.21, 0.21):
+        for y in (-0.17, 0.17):
+            m.box(V(x, y, z0 / 2), V(1, 0), 0.035, 0.035, z0, 'PoleMetal__Dark')
+    for y in (-0.17, 0.17):                                                           # stretchers
+        m.box(V(0, y, 0.08), V(1, 0), 0.42, 0.03, 0.03, 'PoleMetal__Dark')
     return m
 
 
@@ -175,9 +272,17 @@ def mailbox():
 
 
 def parking_meter():
+    """Single-space dome meter: head extruded from its front outline (straight sides, domed top, rounded
+    bottom) with the photo on both faces, collar, galvanized post and base plate."""
     m = Mesh('ParkingMeter', grime(0.6, 0.8))
-    m.cyl(V(0, 0, 0), V(0, 0, 1.15), 0.04, 6, 'PoleMetal')
-    m.box(V(0, 0, 1.33), V(1, 0), 0.2, 0.16, 0.38, 'PoleMetal', {'ny': 'ParkingMeter', 'py': 'ParkingMeter'})
+    m.cyl(V(0, 0, 0), V(0, 0, 0.03), 0.09, 8, 'PoleMetal__Dark')
+    m.cyl(V(0, 0, 0.03), V(0, 0, 1.08), 0.04, 8, 'PoleMetal')
+    m.cyl(V(0, 0, 1.08), V(0, 0, 1.13), 0.07, 8, 'PoleMetal', r1=0.09)
+    z0, r, h = 1.13, 0.12, 0.25   # head: 0.24 x 0.25 m like the photo (31 x 32 px)
+    prof = [(-r + 0.03, z0), (r - 0.03, z0), (r, z0 + 0.03), (r, z0 + h - r)]
+    prof += [(r * math.cos(a), z0 + h - r + r * math.sin(a)) for a in (i * math.pi / 8 for i in range(1, 8))]
+    prof += [(-r, z0 + h - r), (-r, z0 + 0.03)]
+    m.extrude(prof, 0.15, 'ParkingMeter', 'PoleMetal')
     return m
 
 
@@ -252,6 +357,18 @@ def highway_lamp():
     m = Mesh('HighwayLamp')
     rn.lamp(m, V(0, 0), 0.0, V(1, 0), h=10.0, heads=2)
     return m
+
+
+def stamp(dst, src, p, yaw):
+    """Append mesh `src` (local space) to `dst`, rotated by yaw (radians) and moved to 3D p: one-off pieces
+    (fences, hedges sized to their spot) merged into one scene object."""
+    c, s = math.cos(yaw), math.sin(yaw)
+    i = len(dst.verts)
+    dst.verts += [V(p.x + v.x * c - v.y * s, p.y + v.x * s + v.y * c, p.z + v.z) for v in src.verts]
+    dst.faces += [tuple(k + i for k in f) for f in src.faces]
+    dst.uvs += src.uvs
+    dst.mats += src.mats
+    dst.cols += src.cols
 
 
 def fence(length, h=1.9):
@@ -347,12 +464,14 @@ def palm(rnd, h=14.0, fronds=14):
 
 
 def bush(rnd, r=0.8):
+    """Shrub: 3-4 small offset clumps (opaque core) bristling with leaf cards that make the silhouette."""
     m = Mesh('Bush', lambda p: 0.55 + 0.45 * rn.clamp(p.z / (2 * r)))
-    for _ in range(rnd.randint(2, 3)):
-        c = V(rnd.uniform(-r, r) * 0.5, rnd.uniform(-r, r) * 0.5, r * 0.6)
-        rr = r * rnd.uniform(0.7, 1.0)
-        blob(m, c, rr, 'Leaves__Bush', rnd, squash=0.7, segs=6, rings=3)
-        leaf_cards(m, c, rr, 'LeafCard__Bush', rnd, n=4, size=1.1)
+    for i in range(rnd.randint(3, 4)):
+        a = rnd.uniform(0, 2 * math.pi)
+        c = V(math.cos(a) * r * 0.45, math.sin(a) * r * 0.45, r * rnd.uniform(0.45, 0.75)) if i else V(0, 0, r * 0.8)
+        rr = r * rnd.uniform(0.5, 0.7)
+        blob(m, c, rr * 0.8, 'Leaves__Bush', rnd, squash=0.75, segs=6, rings=3)
+        leaf_cards(m, c, rr, 'LeafCard__Bush', rnd, n=10, size=1.6)
     return m
 
 

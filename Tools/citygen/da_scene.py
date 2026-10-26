@@ -38,13 +38,6 @@ def lot_poly(items, center):
     return poly
 
 
-def corner_spot(n, toward, inset=1.0):
-    """Point on the corner sidewalk of junction n facing direction `toward`, `inset` m behind the curb."""
-    c = max((c for c in n.corners if c.kind == 'fillet'), key=lambda c: (c.a.d + c.b.d).normalized().dot(toward))
-    u = ((c.ta - c.C).normalized() + (c.tb - c.C).normalized()).normalized()
-    return c.C + u * (n.curb_r - inset)
-
-
 class Placer:
     """One-off objects (buildings, fences, hedge) go to the DA collection and are exported in the scene FBX.
     Repeated props are recorded as prefab placements (Unity instantiates kit.PREFABS assets) and only
@@ -116,8 +109,10 @@ def build(export=None, impostors=True):
         m.to_object(col)
 
     # ---- buildings (unique, front = -Y faces the avenue)
-    for style, w, d, fl, x, y in (('strip', 28, 12, 1, -25, 52), ('brick', 16, 16, 6, 20, 19.8),
-                                  ('office', 20, 20, 10, 50, 21.8), ('stucco', 12, 12, 3, 80, 17.8)):
+    for style, w, d, fl, x, y in (('strip', 28, 12, 1, -25, 52), ('brick', 12, 16, 5, 16, 19.8),
+                                  ('deco', 12, 16, 8, 29, 19.8), ('office', 16, 20, 10, 44, 21.8),
+                                  ('apartment', 12, 14, 3, 59, 18.8), ('spanish', 12, 12, 2, 72, 17.8),
+                                  ('brickb', 8, 12, 3, 83.5, 17.8)):
         P.static('Bldg_' + style, kit.building(style, w, d, fl, rnd), x, y)
 
     # ---- street furniture on the north avenue sidewalk (curb at y=6.8)
@@ -132,19 +127,19 @@ def build(export=None, impostors=True):
     P.prefab('TrashCan', -20, -7.5)
     for x in (-38, -26):
         P.prefab('Bench', x, -10.1, yaw=math.pi)
-    p = corner_spot(J1, V(1, 1).normalized(), 2.2)
+    p = kit.corner_spot(J1, V(1, 1).normalized(), 2.2)
     P.prefab('StreetSign', p.x, p.y)
-    p = corner_spot(J0, V(-1, -1).normalized(), 2.2)
+    p = kit.corner_spot(J0, V(-1, -1).normalized(), 2.2)
     P.prefab('StreetSign', p.x, p.y, yaw=0.5)
 
     # ---- power poles + wires along the south sidewalk
     wires = rn.Mesh('Wires')
     poles = [-95, -65, -35, 25, 55, 85]
     for x in poles:
-        P.prefab('PowerPole', x, -10.4)
+        P.prefab('PowerPole', x, -10.4, yaw=math.pi / 2)   # crossarm across the line
     for a, b in zip(poles, poles[1:]):
         for dx in (-1.1, 0.0, 1.1):
-            kit.wire(wires, V(a + dx, -10.4, Z + 10.6), V(b + dx, -10.4, Z + 10.6), sag=0.5 + 0.01 * (b - a))
+            kit.wire(wires, V(a, -10.4 + dx, Z + 10.6), V(b, -10.4 + dx, Z + 10.6), sag=0.5 + 0.01 * (b - a))
     wires.to_object(col)
 
     # ---- fences, hedge (sized to their spot: one-off)
