@@ -31,7 +31,12 @@ public class TrafficSystem : MonoBehaviour
     public float wreckLifetime = 60f;
     public float accel = 3f, brake = 4f, hardBrake = 8f, headway = 1.0f, minGap = 1.8f;
     public float greenTime = 9f, yellowTime = 2.5f, allRed = 1f;
-    public float maxShift = 3.8f;         // m a car moves aside to pass a still obstacle (wreck, pushed car, stopped player)
+    public float maxShift = 3.8f;
+    [Header("Sound")]
+    public AudioClip[] engineLoops;       // one engine loop per car sound (low RPM), picked per car, pitched by speed
+    public int engineVoices = 6;          // the nearest cars to the camera get one
+    public float engineRange = 40f;
+    [Range(0, 1)] public float engineVolume = 0.45f;         // m a car moves aside to pass a still obstacle (wreck, pushed car, stopped player)
     public float jamTime = 30f;           // s stopped before an unseen car is moved elsewhere
     // GTA-style population: the simulation is global, but cars live within liveRadius of the player; an unseen car
     // farther than recycleDistance comes back somewhere around him (unseen), at most laneSpacing m of lane per car
@@ -70,6 +75,7 @@ public class TrafficSystem : MonoBehaviour
         public float s, speed, spin, stopped, steer;
         public byte why;                       // what limits the speed (Why[]), for the dev checks
         public float off, offTarget;           // lateral offset from the lane centre (passing a still obstacle), + = right
+        public float honk;                     // time before which this car does not honk again
         public Vector3 pos, fwd;
     }
 
@@ -410,6 +416,7 @@ public class TrafficSystem : MonoBehaviour
         for (int i = 0; i < carsSim.Length; i++) Step(i, dt);
         UpdateProxies();
         UpdateParked();
+        UpdateEngines();
         Draw();
         simMs = (float)watch.Elapsed.TotalMilliseconds;
     }
@@ -531,6 +538,12 @@ public class TrafficSystem : MonoBehaviour
         {
             c.off = Mathf.MoveTowards(c.off, c.offTarget, 1.8f * dt);
             if ((v = c.offTarget == 0 ? 6f : 2.5f) < vMax) vMax = v;   // slow while moving across
+        }
+        // blocked by the player: honk now and then
+        if (why == 3 && c.stopped > 1.2f && Time.time > c.honk && GameAudio.I && (c.pos - camPos).sqrMagnitude < 60 * 60)
+        {
+            c.honk = Time.time + Random.Range(2.5f, 6f);
+            GameAudio.Play(GameAudio.I.horn, c.pos + Vector3.up, 0.8f, 0, Random.Range(0.9f, 1.15f), 0.4f);
         }
         c.why = why;
         c.speed = c.speed < vMax ? Mathf.Min(vMax, c.speed + accel * dt) : Mathf.Max(vMax, c.speed - hardBrake * dt);
@@ -836,6 +849,8 @@ public class TrafficSystem : MonoBehaviour
         p.lastHit = Time.time;
         // a real hit transfers momentum (~0.3 m/s of the car's mass at least); grazes and speculative contacts do not
         if (col.relativeVelocity.magnitude < crashSpeed || col.impulse.magnitude < p.rb.mass * 0.3f) return;
+        if (!col.rigidbody.GetComponent<SimpleCar>() && GameAudio.I)   // the player's car plays its own impacts
+            GameAudio.Play(GameAudio.I.crash, col.GetContact(0).point, 0.9f);
         Debug.Log($"traffic: {p.go.name} wrecked by {col.collider.name} at {col.relativeVelocity.magnitude:0.0} m/s, {p.rb.position}");
         Wreck(p);
     }
@@ -945,6 +960,65 @@ public class TrafficSystem : MonoBehaviour
         p.car = -1;
         p.go.SetActive(false);
         return CellOf(pos) != cell;
+    }
+
+    // ---- engine sounds: the nearest cars to the camera ----
+
+    AudioSource[] engines;
+    int[] engineCar, best;
+    float[] bestD;
+
+    void UpdateEngines()
+    {
+        if (engineLoops == null || engineLoops.Length == 0) return;
+        if (engines == null)
+        {
+            engines = new AudioSource[engineVoices];
+            engineCar = new int[engineVoices];
+            for (int k = 0; k < engineVoices; k++)
+            {
+                var go = new GameObject("Engine" + k);
+                go.transform.SetParent(transform, false);
+                engines[k] = GameAudio.Make3D(go.AddComponent<AudioSource>(), 4f, engineRange);
+                engines[k].loop = true;
+                engineCar[k] = -1;
+            }
+        }
+        // the engineVoices nearest cars within range (insertion into a tiny sorted list)
+        if (best == null) { best = new int[engineVoices]; bestD = new float[engineVoices]; }
+        int n = 0;
+        float r2 = engineRange * engineRange;
+        for (int i = 0; i < carsSim.Length; i++)
+        {
+            float d2 = (carsSim[i].pos - camPos).sqrMagnitude;
+            if (d2 > r2 || (n == engineVoices && d2 >= bestD[n - 1])) continue;
+            int j = n < engineVoices ? n++ : n - 1;
+            while (j > 0 && bestD[j - 1] > d2) { best[j] = best[j - 1]; bestD[j] = bestD[j - 1]; j--; }
+            best[j] = i;
+            bestD[j] = d2;
+        }
+        // keep the voices of cars still in the set, give the others to the newcomers
+        for (int k = 0; k < engines.Length; k++)
+            if (engineCar[k] >= 0 && System.Array.IndexOf(best, engineCar[k], 0, n) < 0) { engineCar[k] = -1; engines[k].Stop(); }
+        for (int m = 0; m < n; m++)
+        {
+            int i = best[m];
+            int k = System.Array.IndexOf(engineCar, i);
+            if (k < 0)
+            {
+                k = System.Array.IndexOf(engineCar, -1);
+                if (k < 0) break;
+                engineCar[k] = i;
+                engines[k].clip = engineLoops[i % engineLoops.Length];
+                engines[k].time = Random.value * engines[k].clip.length;
+                engines[k].Play();
+            }
+            ref var c = ref carsSim[i];
+            float load = Mathf.Clamp01(c.speed / 14f);
+            engines[k].transform.position = c.pos + Vector3.up * 0.6f;
+            engines[k].pitch = 0.8f + 0.6f * load;
+            engines[k].volume = engineVolume * (0.45f + 0.55f * load);
+        }
     }
 
     // ---- drawing ----

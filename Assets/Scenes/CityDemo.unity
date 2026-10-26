@@ -25755,6 +25755,93 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 8931681118711045370, guid: 65397586292eac64d9e4ac2708427abf, type: 3}
   m_PrefabInstance: {fileID: 444550240}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &445152109
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 445152111}
+  - component: {fileID: 445152110}
+  m_Layer: 0
+  m_Name: Audio
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &445152110
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 445152109}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 27af6850e8291c0449f0c16a042cca2d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  crash:
+  - {fileID: 8300000, guid: 220f31e3ecb77784380a7cf87926ff89, type: 3}
+  - {fileID: 8300000, guid: 2add2abdd3475a14586dbfcaaf913c51, type: 3}
+  - {fileID: 8300000, guid: b71f82a3c53dcdd458923d92b74e7b34, type: 3}
+  bump:
+  - {fileID: 8300000, guid: e2f4b87ab0598f745b7a22535b7ec0d8, type: 3}
+  - {fileID: 8300000, guid: dc6a2d6cb7739ee48924dd77b9c3c6e2, type: 3}
+  pole:
+  - {fileID: 8300000, guid: ce5d2a45b17a28641899ccd63bb6c5a9, type: 3}
+  - {fileID: 8300000, guid: 126ec539d938cea4aa59b6aa834411eb, type: 3}
+  bodyHit:
+  - {fileID: 8300000, guid: 5660c98065cc71e44bceba379feb1e63, type: 3}
+  - {fileID: 8300000, guid: f195f15724ab2f74caacfe6e61e24ae0, type: 3}
+  - {fileID: 8300000, guid: a3002aa6f84e05a45b39bfc988e47eb1, type: 3}
+  splat:
+  - {fileID: 8300000, guid: 625a6a12ad56651438889e93a9b1f2e0, type: 3}
+  - {fileID: 8300000, guid: f3dd43804ea45c546981305dd303d34d, type: 3}
+  - {fileID: 8300000, guid: 976168559fa7dab4d8a1fe6fcec58e35, type: 3}
+  - {fileID: 8300000, guid: 5195fe35bd750d94297fe81d25d1ab0b, type: 3}
+  bodyLand:
+  - {fileID: 8300000, guid: 9039b8bea73ba6044aebcb0ccb1113b9, type: 3}
+  - {fileID: 8300000, guid: ab5c600bea06fb0499c27fd1bd2a6787, type: 3}
+  screamMale:
+  - {fileID: 8300000, guid: 6de15eab00d3b5c499d86306087ec856, type: 3}
+  - {fileID: 8300000, guid: 764bad0e3b4762749befbd680714252c, type: 3}
+  - {fileID: 8300000, guid: cb6c88e1db05cb4459838dacce911b20, type: 3}
+  - {fileID: 8300000, guid: bc026aaecae68e6428f3f32654973828, type: 3}
+  screamFemale:
+  - {fileID: 8300000, guid: 4e2904bcfc28a5243be4ee58c9555914, type: 3}
+  - {fileID: 8300000, guid: 52e986ca2a1c7814d90308d55648f6d3, type: 3}
+  - {fileID: 8300000, guid: 33d38d946db5811418ad416d7f19b44b, type: 3}
+  shout:
+  - {fileID: 8300000, guid: ad63a773d4156fb409cecc12775e8c22, type: 3}
+  - {fileID: 8300000, guid: d5790f6d74819fa4eb6f6bfee3c4f94d, type: 3}
+  panic:
+  - {fileID: 8300000, guid: a9c54f066224e5f45b0461d8a382ef10, type: 3}
+  horn:
+  - {fileID: 8300000, guid: bffb5fc913601934f8c41cea13a7ede2, type: 3}
+  - {fileID: 8300000, guid: 941dccdbdcdeb0749b9a16fb7c3fbb58, type: 3}
+  ambience: {fileID: 8300000, guid: 3b3d63e9f91866843b85929805da10f9, type: 3}
+  ambienceVolume: 0.35
+  volume: 1
+  voices: 24
+--- !u!4 &445152111
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 445152109}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &445722545
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -52984,6 +53071,23 @@ MonoBehaviour:
   yellowTime: 2.5
   allRed: 1
   maxShift: 3.8
+  engineLoops:
+  - {fileID: 8300000, guid: ae9ddb268314bd24284dadb72cc04024, type: 3}
+  - {fileID: 8300000, guid: 5e585c85f092990468b46249b82e9a1e, type: 3}
+  - {fileID: 8300000, guid: 4d382d4abe66f244082d89a333a03567, type: 3}
+  - {fileID: 8300000, guid: aae601932878a9443b181ddaf9af2210, type: 3}
+  - {fileID: 8300000, guid: 631a2093acc7a674e8c0cfe5b2a1681a, type: 3}
+  - {fileID: 8300000, guid: d071c7774717d74408c2385e8e5fb056, type: 3}
+  - {fileID: 8300000, guid: ec36db8ffb1ab23479a3ac85acab8ed6, type: 3}
+  - {fileID: 8300000, guid: 78f89d0a54839d448a61758e3fb27f9d, type: 3}
+  - {fileID: 8300000, guid: 71593beed3438e0439fc37fd71a9224e, type: 3}
+  - {fileID: 8300000, guid: 2260e3d8d8cc40a4d8aff8b8ca34d0bb, type: 3}
+  - {fileID: 8300000, guid: 5fc4079060d4ffc47b5305e3b7fb7414, type: 3}
+  - {fileID: 8300000, guid: 21fb17b1490c3c14eafcf4ee3f11019e, type: 3}
+  - {fileID: 8300000, guid: 210c2e7e200b5114d8f0c668c5ab8ce2, type: 3}
+  engineVoices: 6
+  engineRange: 40
+  engineVolume: 0.45
   jamTime: 30
   liveRadius: 450
   recycleDistance: 520
@@ -84943,6 +85047,8 @@ MonoBehaviour:
   minHitSpeed: 3
   ragdollsPerCharacter: 8
   bodyLifetime: 45
+  bloodStain: {fileID: 2100000, guid: 39a57ceb905c3d1498d1d082b2f73c8d, type: 2}
+  bloodSpray: {fileID: 2100000, guid: a86fffa1e6044e040afd536a69fec8fe, type: 2}
 --- !u!4 &1511762690
 Transform:
   m_ObjectHideFlags: 0
@@ -118450,3 +118556,4 @@ SceneRoots:
   - {fileID: 266913315}
   - {fileID: 1511762690}
   - {fileID: 933447994}
+  - {fileID: 445152111}

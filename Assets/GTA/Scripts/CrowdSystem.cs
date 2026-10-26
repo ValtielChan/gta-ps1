@@ -38,6 +38,7 @@ public class CrowdSystem : MonoBehaviour
     public float minHitSpeed = 3f;           // m/s
     public int ragdollsPerCharacter = 8;
     public float bodyLifetime = 45f;
+    public Material bloodStain, bloodSpray;   // BloodFX: PS1Lit cut-out with T_Blood, particle material
 
     const int MaxBatch = 1023;
     const float TurnRate = 5f;
@@ -62,6 +63,7 @@ public class CrowdSystem : MonoBehaviour
         public Rigidbody hips;
         public SkinnedMeshRenderer smr;
         public float time;
+        public bool pooled;             // the blood pool under the body is laid
     }
 
     Ped[] peds;
@@ -81,6 +83,9 @@ public class CrowdSystem : MonoBehaviour
     Vector3 camPos;
     Rigidbody carRb;
     TrafficSystem traffic;
+    bool[] female;                      // per character: screams with a woman's voice (hero_f)
+    float panicUntil, lastKill;
+    int recentKills;
     Vector3 carHalf, carCenter;
     Matrix4x4 carInv;
     Vector2 carPos;
@@ -119,6 +124,8 @@ public class CrowdSystem : MonoBehaviour
             carHalf = box.size * 0.5f;
         }
 
+        female = new bool[characters.Length];
+        for (int c = 0; c < characters.Length; c++) female[c] = characters[c].name.EndsWith("_f");
         pools = new Body[characters.Length][];
         for (int c = 0; c < characters.Length; c++)
         {
@@ -129,8 +136,11 @@ public class CrowdSystem : MonoBehaviour
                 go.SetActive(false);
                 var rbs = go.GetComponentsInChildren<Rigidbody>(true);
                 pools[c][i] = new Body { go = go, anim = go.GetComponent<Animator>(), rbs = rbs, hips = rbs[0], smr = go.GetComponentInChildren<SkinnedMeshRenderer>(true), time = -1e9f };
+                var thud = rbs[0].gameObject.AddComponent<RagdollThud>();   // hips + spine: the parts that hit the ground
+                if (rbs.Length > 1) rbs[1].gameObject.AddComponent<RagdollThud>().root = thud;
             }
         }
+        if (bloodStain && bloodSpray) gameObject.AddComponent<BloodFX>().Init(bloodStain, bloodSpray);
         Populate();
     }
 
@@ -451,14 +461,53 @@ public class CrowdSystem : MonoBehaviour
         b.anim.enabled = false;
         Physics.SyncTransforms();
 
-        // the legs take the bumper first: they leave faster than the torso, the body tumbles
+        // the bumper sweeps the legs: the whole body tips over around the axis across its flight (feet thrown
+        // ahead, head back onto the hood) with some twist and roll, so it tumbles from the first frame
+        var flat = new Vector3(v.x, 0, v.z);
+        var dir = flat.sqrMagnitude > 0.01f ? flat.normalized : Vector3.forward;
+        var spin = Vector3.Cross(dir, Vector3.up) * Mathf.Clamp(flat.magnitude * 0.45f, 2.5f, 9f) * Random.Range(0.8f, 1.2f)
+                 + dir * Random.Range(-2.5f, 2.5f) + Vector3.up * Random.Range(-3f, 3f);
+        Vector3 com = Vector3.zero;
+        float mass = 0;
+        foreach (var rb in b.rbs) { com += rb.worldCenterOfMass * rb.mass; mass += rb.mass; }
+        com /= mass;
         foreach (var rb in b.rbs)
         {
             rb.isKinematic = false;
-            rb.linearVelocity = v * (rb.position.y - p.y < 0.9f ? 1.1f : 0.9f);
-            rb.angularVelocity = Random.insideUnitSphere * 4f;
+            rb.linearVelocity = v + Vector3.Cross(spin, rb.worldCenterOfMass - com);   // one rigid spin of the whole body
+            rb.angularVelocity = spin;
         }
         b.time = Time.time;
+        b.pooled = false;
+        if (BloodFX.I) BloodFX.I.Hit(new Vector3(p.pos.x, p.y + 0.9f, p.pos.y), v);
+        Sounds(ref p, v);
+    }
+
+    // the hit (body against the car, a wet crunch when fast), the victim's scream, bystanders shouting, and a crowd
+    // panic when several people go down in a few seconds
+    void Sounds(ref Ped p, Vector3 v)
+    {
+        var a = GameAudio.I;
+        if (!a) return;
+        var pos = new Vector3(p.pos.x, p.y + 1f, p.pos.y);
+        float speed = v.magnitude;
+        GameAudio.Play(a.bodyHit, pos, 0.55f + speed / 25f, 0, 1, 0.03f);
+        if (speed > 14f) GameAudio.Play(a.splat, pos, 0.9f, 0, 1, 0.03f);
+        if (Random.value < 0.9f) GameAudio.Play(female[p.ch] ? a.screamFemale : a.screamMale, pos, 1f, Random.Range(0f, 0.08f), Random.Range(0.95f, 1.12f), 0.02f);
+        int shouts = 0;
+        for (int i = 0; i < peds.Length && shouts < 2; i++)
+        {
+            ref var q = ref peds[i];
+            if ((q.pos - p.pos).sqrMagnitude > 18 * 18 || (q.pos - p.pos).sqrMagnitude < 1 || Random.value > 0.35f) continue;
+            if (GameAudio.Play(female[q.ch] ? a.screamFemale : a.shout, new Vector3(q.pos.x, q.y + 1.6f, q.pos.y), 0.7f, Random.Range(0.3f, 0.9f), Random.Range(0.95f, 1.1f), 0f)) shouts++;
+        }
+        recentKills = Time.time - lastKill < 6f ? recentKills + 1 : 1;
+        lastKill = Time.time;
+        if (recentKills >= 3 && Time.time > panicUntil)
+        {
+            GameAudio.Play(a.panic, pos, 0.8f, 0.2f, 1, 0f);
+            panicUntil = Time.time + 8f;
+        }
     }
 
     void UpdateBodies()
@@ -471,6 +520,11 @@ public class CrowdSystem : MonoBehaviour
                 float age = Time.time - b.time;
                 if (age > bodyLifetime) b.go.SetActive(false);
                 else if (age < 4f && b.hips.linearVelocity.sqrMagnitude > 9) flying.Add(b);
+                else if (!b.pooled && age > 1.5f && b.hips.linearVelocity.sqrMagnitude < 0.1f && BloodFX.I)
+                {
+                    b.pooled = true;
+                    BloodFX.I.Pool(b.hips.position);
+                }
             }
     }
 

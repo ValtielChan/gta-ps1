@@ -270,9 +270,37 @@ static class NpcPrefabs
         crowd.walkMap = map;
         crowd.pedGraph = AssetDatabase.LoadAssetAtPath<TextAsset>("Assets/GTA/City/" + scene.name + "_peds.json");   // city_demo.export_peds
         crowd.spots = Spots();
+        BloodMaterials(crowd);
         EditorSceneManager.MarkSceneDirty(scene);
         EditorSceneManager.SaveScene(scene);
         Debug.Log($"crowd: {crowd.spots.Length} seats / waiting spots");
+    }
+
+    // BloodFX materials: stains = PS1Lit cut-out with the T_Blood atlas (Tools/texture/blood.py), drawn instanced;
+    // sprays = URP unlit particles colored by the droplets
+    public static void BloodMaterials(CrowdSystem crowd)
+    {
+        Material Mat(string name, string shader)
+        {
+            string path = "Assets/GTA/Materials/" + name + ".mat";
+            var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (!m) { m = new Material(Shader.Find(shader)); AssetDatabase.CreateAsset(m, path); }
+            return m;
+        }
+        var stain = Mat("M_Blood", "GTA/PS1Lit");
+        stain.SetTexture("_BaseMap", AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/GTA/Textures/T_Blood.png"));
+        stain.SetFloat("_AlphaClip", 1);
+        stain.EnableKeyword("_ALPHATEST_ON");
+        stain.SetFloat("_Cutoff", 0.5f);
+        stain.enableInstancing = true;
+        var spray = Mat("M_BloodSpray", "Universal Render Pipeline/Particles/Unlit");
+        spray.SetColor("_BaseColor", Color.white);
+        EditorUtility.SetDirty(stain);
+        EditorUtility.SetDirty(spray);
+        AssetDatabase.SaveAssets();
+        crowd.bloodStain = stain;
+        crowd.bloodSpray = spray;
+        EditorUtility.SetDirty(crowd);
     }
 
     // Seats of the placed benches and bus stops (kit.bench / kit.bus_stop: the sitter faces the prop's +Z, seat 0.46 m

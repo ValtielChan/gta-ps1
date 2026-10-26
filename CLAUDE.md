@@ -25,7 +25,10 @@ Talk to Fabien in French.
 | `Tools/citygen/cars.py` | Fabien's car models: `Art/Cars/<Name>.blend` → `Assets/GTA/Cars/<Name>.fbx` + atlases |
 | `Tools/citygen/npc.py` | PS1 pedestrians from Fabien's base `Art/NPC/hero.fbx`: load, female body, export → `Assets/GTA/NPC/<name>.fbx` (skill `ps1-npc`) |
 | `Tools/texture/npc_variants.py` | Outfit / face / skin variants of the NPC atlas: crop → AI region edit → compose, recolor, tint → `T_hero_<Variant>.png` |
+| `Tools/texture/blood.py` | Blood stain atlas `T_Blood.png` (pool, splash, smear, spatter) from a realistic photo of 4 splatters on white |
 | `Tools/texture/car_paint.py` | Paint variants of a car atlas for the traffic (`T_<Atlas>_<Paint>.png`, body paint hue only) |
+| `Tools/audio/sfx_import.py` | Generated sound effects (ElevenLabs mp3 `<category>_<id>.mp3`) -> `Assets/GTA/Sounds/SFX/<Category>_NN.ogg` (trim, normalize, mono 32 kHz) |
+| `Assets/GTA/Sounds/` | `Car Engine/` (Fabien's engine pack: per set 5 RPM loops `_engine_loop_0x..4x`, transitions, accel/decel) · `SFX/` (crash, bump, pole, body hit, splat, body land, screams M/F, shouts, panic, horn, skid loop, city ambience) |
 | `Art/NPC/` | Base pedestrian model + atlas (`hero.fbx`, `man_t256.png`) and the UAL mocap license |
 | `Art/Cars/` | Source .blend files of the cars (kept out of Assets so Unity does not import them itself) |
 | `Tools/texture/ps1ify.py` | Realistic source image → PS1 texture (crop/trim, seamless, downscale, palette) |
@@ -39,6 +42,9 @@ Talk to Fabien in French.
 | `Assets/GTA/NPC/` | `hero.fbx` (man), `hero_f.fbx` (woman), `Anims/UAL_Standard.fbx` (CC0 mocap), `Skins/M_*.mat`, `Crowd/` (baked crowd data) |
 | `Assets/GTA/Editor/NpcPrefabs.cs` | Menus GTA > Build NPC Crowd (VAT, outfit arrays, ragdoll prefabs) and GTA > Setup Crowd In Open Scene (sidewalk map + `Crowd` object) |
 | `Assets/GTA/Scripts/` | `SimpleCar` (arcade raycast car), `FollowCamera`, `PS1Resolution`, `CrowdSystem` (instanced pedestrians, impacts, ragdolls), `TrafficSystem` (instanced AI cars on the lane graph, signals / stops / yields, physical proxies, wrecks) |
+| `Assets/GTA/Scripts/BloodFX.cs` | Blood (created by CrowdSystem, materials `M_Blood` / `M_BloodSpray` set by Setup Crowd): droplet sprays (particles) and instanced stains on static surfaces: impact splash, splats where bodies hit (`RagdollThud`), smears where they slide, a pool under a body at rest |
+| `Assets/GTA/Scripts/GameAudio.cs`, `CarAudio.cs`, `RagdollThud.cs` | One-shot SFX pool + ambience; player engine (RPM loops cross-faded through a 4-gear box), skid, impacts; ragdoll thuds. Crowd and traffic call `GameAudio.Play` (screams, bystanders, panic, horns, AI crashes, nearest traffic engines) |
+| `Assets/GTA/Editor/AudioSetup.cs` | Menu GTA > Setup Audio In Open Scene: `Audio` object, CarAudio on `Car_*.prefab` (engine set `PlayerEngine`), traffic engine loops |
 | `Assets/GTA/Editor/TrafficBuild.cs` | Menus GTA > Build Traffic Cars (combined meshes, paints, proxy prefab → `Assets/GTA/Traffic/`) and GTA > Setup Traffic In Open Scene |
 | `Assets/GTA/Prefabs/Car_W123.prefab` | Playable W123 (Rigidbody + SimpleCar + box collider above the suspension) |
 | `Assets/Scenes/CityDemo.unity` | Main scene: whole city with the DA, prefabs and the W123 · `DAScene.unity` art-direction test |
@@ -74,8 +80,11 @@ Talk to Fabien in French.
 ## Working with Unity via MCP
 
 - Fabien may be playing in Play mode: don't stop Play mode or move the car without asking.
-- To drive from MCP: `PlayerSettings.runInBackground = true` (already set) and
-  `InputSystem.settings.backgroundBehavior = IgnoreFocus`, then `InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(Key.W))`.
+- To drive from MCP (scripted tests): add a virtual `InputSystem.AddDevice<Keyboard>("TestKeyboard")` and every frame
+  set `InputSystem.settings.editorInputBehaviorInPlayMode = AllDeviceInputAlwaysGoesToGameView` (reset on each Play),
+  `EnableDevice` + `MakeCurrent`, `QueueStateEvent(vk, new KeyboardState(keys))` then an explicit `InputSystem.Update()`
+  (without it the keys are ignored while the Game view has no focus). Remove the device afterwards. Test on a Plane at
+  y = 300 (scale 100) to avoid traffic, log with `Debug.Log` and read `Unity_ReadConsole`. Reflection in RunCommand code fails.
 - Screenshots: render `Camera.main` into a RenderTexture and save a PNG (Unity_Camera_Capture fails in Play mode).
 
 ## Status / roadmap
@@ -94,7 +103,10 @@ Talk to Fabien in French.
    living around the player (car following, signal phases, all-way stops, yields, roundabout, highway exits /
    merges, passing wrecks, gridlocks dissolved out of sight), ~660 parked cars (street parking lanes, lots); the
    nearest cars are rigidbodies the player can crash into, push and wreck.
-7. Next: signal heads showing the phases (`TrafficSystem.Phase`), lane changes / overtaking, more car models, crowd
+7. ✅ Sound: Fabien's engine pack on the player car (RPM model) and the nearest traffic, ElevenLabs SFX (flow
+   "GTA PS1 - sound effects", model eleven_text_to_sound_v2, ~0.5 cent per take, max 1-2 concurrent generations:
+   launch one at a time) for crashes, pole hits, body hits, gore, screams, bystanders, panic, horns, skid, ambience.
+8. Next: signal heads showing the phases (`TrafficSystem.Phase`), lane changes / overtaking, more car models, crowd
    panic / fleeing, pedestrians obeying the traffic lights, more NPC variants (ages, builds, Mixamo extras), road
    connection fixes Fabien noticed (ask which ones), more districts (residential…), day/night, vertex snapping
    (deliberately postponed).
