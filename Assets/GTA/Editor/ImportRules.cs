@@ -126,4 +126,17 @@ class ImportRules : AssetPostprocessor
         ti.wrapMode = TextureWrapMode.Repeat;
         ti.alphaIsTransparency = ti.DoesSourceTextureHaveAlpha();
     }
+
+    // Sounds: loaded with the scene, never on first play (a synchronous load is a 30-150 ms freeze per clip).
+    // Short one-shots decompressed (cheap to start), loops kept compressed in memory (engine packs are big).
+    void OnPreprocessAudio()
+    {
+        if (!assetPath.StartsWith("Assets/GTA/Sounds/")) return;
+        var ai = (AudioImporter)assetImporter;
+        var s = ai.defaultSampleSettings;
+        s.preloadAudioData = true;
+        bool loop = assetPath.Contains("_loop") || assetPath.Contains("Ambience") || assetPath.Contains("Skid");
+        s.loadType = loop ? AudioClipLoadType.CompressedInMemory : AudioClipLoadType.DecompressOnLoad;
+        ai.defaultSampleSettings = s;
+    }
 }

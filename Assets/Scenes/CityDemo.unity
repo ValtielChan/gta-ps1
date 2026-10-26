@@ -53051,11 +53051,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   cars:
+  - {fileID: 11400000, guid: 6239d3feb8b5ca6409d58961f10b0a1c, type: 2}
+  - {fileID: 11400000, guid: 0971fed57a9eae344a078f5b6918c7b6, type: 2}
   - {fileID: 11400000, guid: ca837c558dfc19f49b45d230ff850f72, type: 2}
   laneGraph: {fileID: 4900000, guid: c93fd4bb018fcb5458a6365afe31d597, type: 3}
   count: 700
   drawDistance: 300
   physicsDistance: 45
+  shadowDistance: 50
   proxies: 14
   parkedOccupancy: 0.7
   parkRadius: 35

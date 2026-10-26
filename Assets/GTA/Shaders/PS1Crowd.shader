@@ -59,6 +59,7 @@ Shader "GTA/PS1Crowd"
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+            float _PS1ShadowmapRes;   // global, single cascade shadow map resolution
 
             struct Varyings
             {
@@ -88,7 +89,11 @@ Shader "GTA/PS1Crowd"
             {
                 half3 tex = SAMPLE_TEXTURE2D_ARRAY(_Skins, sampler_Skins, i.uvSkin.xy, i.uvSkin.z).rgb;
                 half3 n = normalize(i.normalWS);
-                Light sun = GetMainLight(TransformWorldToShadowCoord(i.positionWS));
+                // shadow map read at its texel centres: the hardware filter blends nothing, the shadows keep
+                // their big square PS1 pixels
+                float4 sc = TransformWorldToShadowCoord(i.positionWS);
+                if (_PS1ShadowmapRes > 0) sc.xy = (floor(sc.xy * _PS1ShadowmapRes) + 0.5) / _PS1ShadowmapRes;   // set by PS1Resolution
+                Light sun = GetMainLight(sc);
                 half3 light = sun.color * (saturate(dot(n, sun.direction)) * sun.shadowAttenuation * sun.distanceAttenuation);
                 light += SampleSH(n);
                 #if defined(_ADDITIONAL_LIGHTS)

@@ -154,9 +154,4 @@ public class SimpleCar : MonoBehaviour
         rb.rotation = yaw;
         transform.SetPositionAndRotation(rb.position, yaw);
     }
-
-    void OnGUI()
-    {
-        GUI.Label(new Rect(20, 20, 300, 30), $"{Mathf.Abs(SpeedKmh):0} km/h", new GUIStyle(GUI.skin.label) { fontSize = 28 });
-    }
 }

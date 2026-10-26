@@ -22,11 +22,11 @@ Talk to Fabien in French.
 | `Tools/citygen/city_demo.py` | The demo city map (grid, roundabout, elevated ring highway, interchanges) |
 | `Tools/citygen/kit.py` | Art-direction kit: buildings, street props, trees/bushes + billboard LODs |
 | `Tools/citygen/da_scene.py` | Compact art-direction test scene (everything in one street corner) |
-| `Tools/citygen/cars.py` | Fabien's car models: `Art/Cars/<Name>.blend` → `Assets/GTA/Cars/<Name>.fbx` + atlases |
+| `Tools/citygen/cars.py` | Fabien's car models: `Art/Cars/<Name>.blend` → `Assets/GTA/Cars/<Name>.fbx` (player) or `Assets/GTA/Cars/Traffic/<Name>.fbx` (traffic: W123, W110, TS35 bus) + atlases |
 | `Tools/citygen/npc.py` | PS1 pedestrians from Fabien's base `Art/NPC/hero.fbx`: load, female body, export → `Assets/GTA/NPC/<name>.fbx` (skill `ps1-npc`) |
 | `Tools/texture/npc_variants.py` | Outfit / face / skin variants of the NPC atlas: crop → AI region edit → compose, recolor, tint → `T_hero_<Variant>.png` |
 | `Tools/texture/blood.py` | Blood stain atlas `T_Blood.png` (pool, splash, smear, spatter) from a realistic photo of 4 splatters on white |
-| `Tools/texture/car_paint.py` | Paint variants of a car atlas for the traffic (`T_<Atlas>_<Paint>.png`, body paint hue only) |
+| `Tools/texture/car_paint.py` | Paint variants of a traffic car atlas (`T_<Atlas>_<Paint>.png`, body paint only: colored or white body found in the atlas) |
 | `Tools/audio/sfx_import.py` | Generated sound effects (ElevenLabs mp3 `<category>_<id>.mp3`) -> `Assets/GTA/Sounds/SFX/<Category>_NN.ogg` (trim, normalize, mono 32 kHz) |
 | `Assets/GTA/Sounds/` | `Car Engine/` (Fabien's engine pack: per set 5 RPM loops `_engine_loop_0x..4x`, transitions, accel/decel) · `SFX/` (crash, bump, pole, body hit, splat, body land, screams M/F, shouts, panic, horn, skid loop, city ambience) |
 | `Art/NPC/` | Base pedestrian model + atlas (`hero.fbx`, `man_t256.png`) and the UAL mocap license |
@@ -45,7 +45,7 @@ Talk to Fabien in French.
 | `Assets/GTA/Scripts/BloodFX.cs` | Blood (created by CrowdSystem, materials `M_Blood` / `M_BloodSpray` set by Setup Crowd): droplet sprays (particles) and instanced stains on static surfaces: impact splash, splats where bodies hit (`RagdollThud`), smears where they slide, a pool under a body at rest |
 | `Assets/GTA/Scripts/GameAudio.cs`, `CarAudio.cs`, `RagdollThud.cs` | One-shot SFX pool + ambience; player engine (RPM loops cross-faded through a 4-gear box), skid, impacts; ragdoll thuds. Crowd and traffic call `GameAudio.Play` (screams, bystanders, panic, horns, AI crashes, nearest traffic engines) |
 | `Assets/GTA/Editor/AudioSetup.cs` | Menu GTA > Setup Audio In Open Scene: `Audio` object, CarAudio on `Car_*.prefab` (engine set `PlayerEngine`), traffic engine loops |
-| `Assets/GTA/Editor/TrafficBuild.cs` | Menus GTA > Build Traffic Cars (combined meshes, paints, proxy prefab → `Assets/GTA/Traffic/`) and GTA > Setup Traffic In Open Scene |
+| `Assets/GTA/Editor/TrafficBuild.cs` | Menus GTA > Build Traffic Cars (every `Cars/Traffic/*.fbx`: combined meshes, paints, proxy prefab → `Assets/GTA/Traffic/`) and GTA > Setup Traffic In Open Scene |
 | `Assets/GTA/Prefabs/Car_W123.prefab` | Playable W123 (Rigidbody + SimpleCar + box collider above the suspension) |
 | `Assets/Scenes/CityDemo.unity` | Main scene: whole city with the DA, prefabs and the W123 · `DAScene.unity` art-direction test |
 
@@ -99,7 +99,7 @@ Talk to Fabien in French.
 5. ✅ Crowd: ~2400 instanced pedestrians all over the city (VAT + GPU instancing, WebGL friendly): walkers on the
    sidewalk graph (keep right, cross at crosswalks), people on benches and at bus stops, chatting groups; the car
    runs them over (pooled ragdolls thrown by the impact).
-6. ✅ Traffic (`city-traffic`): lane graph + parking spots from the road generator, ~440 instanced W123 in 8 paints
+6. ✅ Traffic (`city-traffic`): lane graph + parking spots from the road generator, ~440 instanced cars (W123, W110 in 8 paints, TS35 buses in 6; the player's W123i stays out)
    living around the player (car following, signal phases, all-way stops, yields, roundabout, highway exits /
    merges, passing wrecks, gridlocks dissolved out of sight), ~660 parked cars (street parking lanes, lots); the
    nearest cars are rigidbodies the player can crash into, push and wreck.

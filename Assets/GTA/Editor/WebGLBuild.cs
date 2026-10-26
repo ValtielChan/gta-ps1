@@ -13,6 +13,8 @@ static class WebGLBuild
     public static void Build()
     {
         if (File.Exists(Report)) File.Delete(Report);
+        // file names are content hashes (Player Settings): drop the previous build's files, else they pile up in gh-pages
+        if (Directory.Exists(Out + "/Build")) Directory.Delete(Out + "/Build", true);
         EditorApplication.delayCall += () =>
         {
             string text;

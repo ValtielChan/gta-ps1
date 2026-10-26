@@ -20,7 +20,9 @@ Same philosophy as the crowd (skill `ps1-npc`): cars are plain structs simulated
 | `Assets/GTA/Editor/TrafficBuild.cs` | Menus **GTA > Build Traffic Cars** and **GTA > Setup Traffic In Open Scene** |
 | `Assets/GTA/Traffic/` | Built: `<Car>.asset`, `<Car>_Body/_Wheel0..3.asset`, `M_<Car>_<Paint>(.mat / _Glass.mat)`, `M_<Car>_<Interior>` |
 | `Assets/GTA/Prefabs/Traffic/<Car>_Traffic.prefab` | Proxy: rigidbody (car mass) + box + combined body + 4 wheels |
-| `Tools/texture/car_paint.py` | `T_<Atlas>.png` -> `T_<Atlas>_<Paint>.png` (hue / sat / value of the body paint only) |
+| `Tools/texture/car_paint.py` | `T_<Atlas>.png` -> `T_<Atlas>_<Paint>.png` (body paint found in the atlas: hue window or white body; lights, chrome, glass, tires kept) |
+| `Tools/citygen/cars.py` `export_car(name, traffic=True)` | `Art/Cars/<Name>.blend` -> `Assets/GTA/Cars/Traffic/<Name>.fbx` + `T_<material>.png` |
+| `Assets/GTA/Cars/Traffic/` | Traffic models (W123 without interior, W110, TS35 bus); the player's W123i (with interior) stays out of the traffic |
 
 ## Lane graph (Python, `traffic_graph`)
 
@@ -86,7 +88,7 @@ Check it with a top-down PIL plot of the lanes (arrows, colored by `turn`) and t
   matrices). Within `parkRadius` (35 m) they take a proxy from `parkPool` (`parkedProxies` 30 per model): free
   body at rest (asleep) that can be pushed, rammed, thrown; released at 1.3x the radius once asleep, keeping the
   pose it was left in (`moved` -> obstacle for traffic).
-- Drawing: body (one submesh per material: paint, interior, glass) per paint + 4 wheels (spin, steering from the
+- Drawing: body (one submesh per material: paint, glass if any) per paint + 4 wheels (spin, steering from the
   lane curvature), frustum / distance (300 m) culled, shadows on. Proxied cars render themselves.
 
 Measured (editor, 2026-10-26): ~440 moving + ~660 parked cars, 1.0-1.5 ms per frame; after 3 min with the
@@ -94,10 +96,16 @@ player parked downtown: 71 % moving, mean 35 km/h, no queue head stopped > 20 s.
 
 ## Workflow
 
-1. New / changed car model: `cars.export_car(...)`, the playable prefab `Assets/GTA/Prefabs/Car_<Name>.prefab`
-   (SimpleCar + Rigidbody + BoxCollider + wheel transforms), then
-   `python -I Tools/texture/car_paint.py Assets/GTA/Textures/T_<Atlas>.png` (edit `PAINTS`) and
-   **GTA > Build Traffic Cars** (every `Car_*.prefab`; every `T_<Atlas>_*.png` = a paint; the base atlas = `Base`).
+1. New / changed traffic model (Fabien drops an FBX: take its `.blend` from his sandbox folder, the FBX path says
+   where): copy it to `Art/Cars/<Name>.blend` (objects `<Name>_Body`, `<Name>_Wheel_FL/FR/RL/RR` at the wheel
+   centres, one atlas material; front +X else pass `front_axis`), `cars.export_car('<Name>', traffic=True)` (Blender
+   CLI: `blender -b --factory-startup --python` a script that puts `Tools/citygen` on `sys.path`), then
+   `python -I Tools/texture/car_paint.py Assets/GTA/Textures/T_<Atlas>.png --preview <scratch dir>` (check the
+   contact sheet: only the body paint changes) and **GTA > Build Traffic Cars** (every FBX of `Cars/Traffic`; every
+   `T_<Atlas>_*.png` = a paint, the base atlas = `Base`; box from the body bounds above the wheel centres, mass
+   175 kg/m2 of footprint). Add the new `<Name>.asset` to `Traffic.cars` in the scene (or re-run Setup Traffic).
+   Sizes come from the box: cars keep their own length in the queues, models longer than 7 m (buses) spawn at
+   0.15 weight, models longer than 6 m never park (6.5 m slots).
 2. Road or block change: re-export the lane graph (above), then **GTA > Setup Traffic In Open Scene** (replaces the
    `Traffic` object with the script defaults, saves the scene). Serialized fields keep old values in the scene:
    re-run Setup after changing a default.

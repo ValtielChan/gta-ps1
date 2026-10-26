@@ -6,38 +6,41 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 
 // Traffic build (see Scripts/TrafficSystem.cs).
-// Menu GTA > Build Traffic Cars: for each playable car prefab Assets/GTA/Prefabs/Car_*.prefab (SimpleCar):
+// Menu GTA > Build Traffic Cars: for each traffic model Assets/GTA/Cars/Traffic/<name>.fbx (Tools/citygen/cars.py
+// export_car(name, traffic=True): a body + wheels *_Wheel_FL/FR/RL/RR at their centres; the player's car stays out):
 //   - the model's parts but the wheels combined into one mesh (one submesh per material) + the 4 wheel meshes;
 //   - one material set per paint: the body atlas T_<atlas>.png and every T_<atlas>_<Paint>.png made by
 //     Tools/texture/car_paint.py (glass material swapped the same way), instancing enabled;
-//   - the proxy prefab Prefabs/Traffic/<name>_Traffic.prefab (rigidbody + box + the model);
+//   - the proxy prefab Prefabs/Traffic/<name>_Traffic.prefab (rigidbody + box above the wheel centres + the model,
+//     mass from the footprint: ~1450 kg for a car, ~5.7 t for the bus);
 //   - Assets/GTA/Traffic/<name>.asset (TrafficCar) tying it together.
 // Menu GTA > Setup Traffic In Open Scene: puts a "Traffic" object (TrafficSystem with every car and the scene's
 // lane graph Assets/GTA/City/<scene>_traffic.json) in the scene.
 static class TrafficBuild
 {
-    const string Dir = "Assets/GTA/Traffic", PrefabDir = "Assets/GTA/Prefabs/Traffic", TexDir = "Assets/GTA/Textures";
+    const string Dir = "Assets/GTA/Traffic", PrefabDir = "Assets/GTA/Prefabs/Traffic", TexDir = "Assets/GTA/Textures", ModelDir = "Assets/GTA/Cars/Traffic";
+    static readonly string[] WheelNames = { "_Wheel_FL", "_Wheel_FR", "_Wheel_RL", "_Wheel_RR" };
 
     [MenuItem("GTA/Build Traffic Cars")]
     public static void Build()
     {
         Directory.CreateDirectory(Dir);
         Directory.CreateDirectory(PrefabDir);
-        foreach (var path in Directory.GetFiles("Assets/GTA/Prefabs", "Car_*.prefab").Select(p => p.Replace('\\', '/')))
+        foreach (var path in Directory.GetFiles(ModelDir, "*.fbx").Select(p => p.Replace('\\', '/')))
         {
-            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-            var car = prefab.GetComponent<SimpleCar>();
-            if (!car) continue;
-            string name = prefab.name.Substring(4);
-            var box = prefab.GetComponent<BoxCollider>();
-            var root = prefab.transform;
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            string name = model.name;
+            var root = model.transform;
+            var parts = model.GetComponentsInChildren<Transform>();
+            var wheelT = WheelNames.Select(w => parts.FirstOrDefault(t => t.name.EndsWith(w))).ToArray();
+            if (wheelT.Contains(null)) { Debug.LogError($"{path}: needs 4 wheels named *{string.Join(", *", WheelNames)}"); continue; }
 
             // combine every part but the wheels, grouped by material
             var order = new List<Material>();
             var groups = new Dictionary<Material, List<CombineInstance>>();
-            foreach (var mf in prefab.GetComponentsInChildren<MeshFilter>())
+            foreach (var mf in model.GetComponentsInChildren<MeshFilter>())
             {
-                if (car.wheels.Contains(mf.transform)) continue;
+                if (wheelT.Contains(mf.transform)) continue;
                 var mr = mf.GetComponent<MeshRenderer>();
                 for (int s = 0; s < mf.sharedMesh.subMeshCount; s++)
                 {
@@ -46,13 +49,13 @@ static class TrafficBuild
                     groups[m].Add(new CombineInstance { mesh = mf.sharedMesh, subMeshIndex = s, transform = root.worldToLocalMatrix * mf.transform.localToWorldMatrix });
                 }
             }
-            var parts = order.Select(m => { var g = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 }; g.CombineMeshes(groups[m].ToArray(), true, true); return new CombineInstance { mesh = g, transform = Matrix4x4.identity }; }).ToArray();
+            var merged = order.Select(m => { var g = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 }; g.CombineMeshes(groups[m].ToArray(), true, true); return new CombineInstance { mesh = g, transform = Matrix4x4.identity }; }).ToArray();
             var body = new Mesh { name = name + "_Body", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
-            body.CombineMeshes(parts, false, false);
+            body.CombineMeshes(merged, false, false);
             body.RecalculateBounds();
             body = Save(body, Dir + "/" + name + "_Body.asset");
             var wheels = new Mesh[4];
-            for (int w = 0; w < 4; w++) wheels[w] = Save(Object.Instantiate(car.wheels[w].GetComponent<MeshFilter>().sharedMesh), Dir + "/" + name + "_Wheel" + w + ".asset");
+            for (int w = 0; w < 4; w++) wheels[w] = Save(Object.Instantiate(wheelT[w].GetComponent<MeshFilter>().sharedMesh), Dir + "/" + name + "_Wheel" + w + ".asset");
 
             // paints: the body atlas and its variants
             var bodyMat = order.First(m => !m.name.EndsWith("__Glass") && m.GetTexture("_BaseMap"));
@@ -84,16 +87,19 @@ static class TrafficBuild
             var tc = Save(ScriptableObject.CreateInstance<TrafficCar>(), Dir + "/" + name + ".asset");
             tc.body = body;
             tc.wheels = wheels;
-            tc.wheelPos = car.wheels.Select(w => root.InverseTransformPoint(w.position)).ToArray();
-            tc.wheelRadius = car.wheelRadius;
+            tc.wheelPos = wheelT.Select(w => root.InverseTransformPoint(w.position)).ToArray();
+            tc.wheelRadius = wheels[0].bounds.extents.y;
             tc.wheelBase = Mathf.Abs(tc.wheelPos[0].z - tc.wheelPos[2].z);
-            tc.boxCenter = box.center;
-            tc.boxSize = box.size;
+            // like the playable car's box: from just above the wheel centres (curbs pass under) to the roof
+            var b = body.bounds;
+            float bottom = tc.wheelPos[0].y + 0.1f;
+            tc.boxCenter = new Vector3(b.center.x, (bottom + b.max.y) / 2, b.center.z);
+            tc.boxSize = new Vector3(b.size.x, b.max.y - bottom, b.size.z);
             tc.paints = texs.Length;
             tc.subMeshes = order.Count;
             tc.materials = materials.ToArray();
             tc.wheelMaterial = wheelMat;
-            tc.proxy = BuildProxy(name, tc, prefab);
+            tc.proxy = BuildProxy(name, tc, 175f * b.size.x * b.size.z);   // 1450 kg for the 4.7 x 1.77 m W123
             EditorUtility.SetDirty(tc);
             Debug.Log($"{name}: {tc.paints} paints, {tc.subMeshes} submeshes, body {body.vertexCount} vertices");
         }
@@ -104,25 +110,39 @@ static class TrafficBuild
     {
         var old = AssetDatabase.LoadAssetAtPath<T>(path);
         if (!old) { AssetDatabase.CreateAsset(obj, path); return obj; }
-        EditorUtility.CopySerialized(obj, old);
+        if (obj is Mesh src && old is Mesh dst)
+        {
+            // through the mesh API: a mesh CopySerialized over keeps drawing its old geometry (seen: the W123i body
+            // without its glass instead of the new W123)
+            dst.Clear();
+            dst.indexFormat = src.indexFormat;
+            dst.SetVertices(src.vertices);
+            dst.SetNormals(src.normals);
+            dst.SetUVs(0, src.uv);
+            dst.SetColors(src.colors);
+            dst.subMeshCount = src.subMeshCount;
+            for (int s = 0; s < src.subMeshCount; s++) dst.SetTriangles(src.GetTriangles(s), s);
+            dst.RecalculateBounds();
+        }
+        else EditorUtility.CopySerialized(obj, old);
         old.name = Path.GetFileNameWithoutExtension(path);
         EditorUtility.SetDirty(old);
         return old;
     }
 
     // rigidbody (the car's mass) + box + the combined body and 4 wheels, driven by TrafficSystem
-    static GameObject BuildProxy(string name, TrafficCar tc, GameObject carPrefab)
+    static GameObject BuildProxy(string name, TrafficCar tc, float mass)
     {
         var go = new GameObject(name + "_Traffic");
         var rb = go.AddComponent<Rigidbody>();
-        rb.mass = carPrefab.GetComponent<Rigidbody>().mass;
+        rb.mass = mass;
         rb.useGravity = false;
         rb.interpolation = RigidbodyInterpolation.Interpolate;
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
         var box = go.AddComponent<BoxCollider>();
         box.center = tc.boxCenter;
         box.size = tc.boxSize;
-        box.sharedMaterial = carPrefab.GetComponent<BoxCollider>().sharedMaterial;
+        box.sharedMaterial = AssetDatabase.LoadAssetAtPath<PhysicsMaterial>("Assets/GTA/Materials/CarBody.physicMaterial");
         go.AddComponent<TrafficProxy>();
         var body = new GameObject("Body");
         body.transform.SetParent(go.transform, false);

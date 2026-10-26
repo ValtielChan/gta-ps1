@@ -49,6 +49,7 @@ Shader "GTA/PS1Lit"
             #pragma multi_compile_instancing
             #pragma shader_feature_local_fragment _ALPHATEST_ON
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+            float _PS1ShadowmapRes;   // global, single cascade shadow map resolution
 
             struct Attributes
             {
@@ -90,7 +91,11 @@ Shader "GTA/PS1Lit"
                 clip(tex.a - _Cutoff);
                 #endif
                 half3 n = normalize(i.normalWS) * IS_FRONT_VFACE(face, 1, -1);
-                Light sun = GetMainLight(TransformWorldToShadowCoord(i.positionWS));
+                // shadow map read at its texel centres: the hardware filter blends nothing, the shadows keep
+                // their big square PS1 pixels
+                float4 sc = TransformWorldToShadowCoord(i.positionWS);
+                if (_PS1ShadowmapRes > 0) sc.xy = (floor(sc.xy * _PS1ShadowmapRes) + 0.5) / _PS1ShadowmapRes;   // set by PS1Resolution
+                Light sun = GetMainLight(sc);
                 half3 light = sun.color * (saturate(dot(n, sun.direction)) * sun.shadowAttenuation * sun.distanceAttenuation);
                 light += SampleSH(n);
                 #if defined(_ADDITIONAL_LIGHTS)

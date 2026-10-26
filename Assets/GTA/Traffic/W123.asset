@@ -25,34 +25,18 @@ MonoBehaviour:
   - {x: 0.74529564, y: 0.314, z: -1.2045369}
   wheelRadius: 0.314
   wheelBase: 2.7385073
-  boxCenter: {x: 0, y: 0.88, z: 0}
-  boxSize: {x: 1.74, y: 0.95, z: 4.6}
+  boxCenter: {x: 0, y: 0.9045, z: -0.014408708}
+  boxSize: {x: 1.7699289, y: 0.98099995, z: 4.6960783}
   paints: 8
-  subMeshes: 3
+  subMeshes: 1
   materials:
   - {fileID: 2100000, guid: a95094265becfbd4485a5444836a6804, type: 2}
-  - {fileID: 2100000, guid: c4968f7099fff144e92c928bc6de4ca6, type: 2}
-  - {fileID: 2100000, guid: 23c6f1bd162469946afa2f3e9dc0060d, type: 2}
   - {fileID: 2100000, guid: 847ca660a83601c49bb02cfd9c324166, type: 2}
-  - {fileID: 2100000, guid: c4968f7099fff144e92c928bc6de4ca6, type: 2}
-  - {fileID: 2100000, guid: 79fee697a8b7dbd4fb7b7cf7a25603b9, type: 2}
   - {fileID: 2100000, guid: 88536d5ea8e691444ad816cf41b182b9, type: 2}
-  - {fileID: 2100000, guid: c4968f7099fff144e92c928bc6de4ca6, type: 2}
-  - {fileID: 2100000, guid: 0e7e17c8778824443bb82893e46b744f, type: 2}
   - {fileID: 2100000, guid: 791d42316f0408d4f9f5a3052f521080, type: 2}
-  - {fileID: 2100000, guid: c4968f7099fff144e92c928bc6de4ca6, type: 2}
-  - {fileID: 2100000, guid: 970a0929735dedc46989ca2d135bde81, type: 2}
   - {fileID: 2100000, guid: eca25637f2b0ed446a1dfb8ffd0e9332, type: 2}
-  - {fileID: 2100000, guid: c4968f7099fff144e92c928bc6de4ca6, type: 2}
-  - {fileID: 2100000, guid: f7fe85dca28c09e40ae9d3b6d627b019, type: 2}
   - {fileID: 2100000, guid: bb5b5ba34e817924a9fee25bede76be0, type: 2}
-  - {fileID: 2100000, guid: c4968f7099fff144e92c928bc6de4ca6, type: 2}
-  - {fileID: 2100000, guid: a46ba13ed4158f8479087c156926771d, type: 2}
   - {fileID: 2100000, guid: 6316a4c68da1f044aa4a19bd3b9968e4, type: 2}
-  - {fileID: 2100000, guid: c4968f7099fff144e92c928bc6de4ca6, type: 2}
-  - {fileID: 2100000, guid: 0ac85d2a5ae3bf648906a359e0fbc2c5, type: 2}
   - {fileID: 2100000, guid: 8cf44bb345b8e0c498501924bc219859, type: 2}
-  - {fileID: 2100000, guid: c4968f7099fff144e92c928bc6de4ca6, type: 2}
-  - {fileID: 2100000, guid: 5a920e818b6a9bc4a99178bdef75646c, type: 2}
   wheelMaterial: {fileID: 2100000, guid: a95094265becfbd4485a5444836a6804, type: 2}
-  proxy: {fileID: 3983123397962271693, guid: 6a3a226d757d78c4dbd4f3635fcf9149, type: 3}
+  proxy: {fileID: 2961624069993169538, guid: 6a3a226d757d78c4dbd4f3635fcf9149, type: 3}

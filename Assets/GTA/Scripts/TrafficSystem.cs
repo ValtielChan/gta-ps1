@@ -23,6 +23,7 @@ public class TrafficSystem : MonoBehaviour
     public TextAsset laneGraph;           // Assets/GTA/City/<City>_traffic.json
     public int count = 700;
     public float drawDistance = 300f, physicsDistance = 45f;
+    public float shadowDistance = 50f;   // farther cars cast no shadow (they would be drawn into the shadow map for nothing)
     public int proxies = 14;
     [Range(0, 1)] public float parkedOccupancy = 0.7f;
     public float parkRadius = 35f;
@@ -45,7 +46,10 @@ public class TrafficSystem : MonoBehaviour
     [System.NonSerialized] public int jamRespawns;
 
     const int MaxBatch = 1023;
-    const float Look = 60f, CarLength = 4.6f, HalfLength = 2.3f, HalfWidth = 0.9f, StopLine = 7.5f;
+    const float Look = 60f, CarLength = 4.6f, HalfLength = 2.3f, HalfWidth = 0.9f, StopLine = 7.5f;   // the player's car, queues
+    // per model (TrafficCar box): half length / width, spawn weight (buses rarer), fits a parking spot (6.5 m slots)
+    float[] halfL, halfW, weight;
+    bool[] parks;
 
     [System.Serializable] class LaneJson { public float[] pts; public float speed; public int junction, turn, arm; public int[] next; }
     [System.Serializable] class JunctionJson { public int control; public float x, z; }
@@ -110,8 +114,8 @@ public class TrafficSystem : MonoBehaviour
     int[] fill;
     const float Cell = 50f, GridMin = -1200f;
     const int Cells = 48;                   // ponytail: 2.4 km square map; make the grid follow the city bounds past that
-    Matrix4x4[][] bodyMats;              // [model * paints + paint][instance]
-    Matrix4x4[][][] wheelMats;           // [model][wheel][instance]
+    Matrix4x4[][] bodyMats;              // [(model * paints + paint) * 2 + casts shadow][instance]
+    Matrix4x4[][][] wheelMats;           // [model * 2 + casts shadow][wheel][instance]
     int[] bodyCount, wheelCount;
     readonly Plane[] planes = new Plane[6];
     Vector3 camPos, playerPos;
@@ -124,6 +128,14 @@ public class TrafficSystem : MonoBehaviour
 
     void Start()
     {
+        halfL = new float[cars.Length]; halfW = new float[cars.Length]; weight = new float[cars.Length]; parks = new bool[cars.Length];
+        for (int m = 0; m < cars.Length; m++)
+        {
+            halfL[m] = cars[m].boxSize.z / 2;
+            halfW[m] = cars[m].boxSize.x / 2;
+            parks[m] = cars[m].boxSize.z < 6f;
+            weight[m] = cars[m].boxSize.z > 7f ? 0.15f : 1f;   // ponytail: buses by length; a per-model knob when there are trucks
+        }
         LoadGraph();
         var player = FindAnyObjectByType<SimpleCar>();
         if (player) playerRb = player.GetComponent<Rigidbody>();
@@ -132,26 +144,34 @@ public class TrafficSystem : MonoBehaviour
 
         int nb = 0;
         foreach (var c in cars) nb += c.paints;
-        bodyMats = new Matrix4x4[nb][];
-        bodyCount = new int[nb];
-        for (int i = 0; i < nb; i++) bodyMats[i] = new Matrix4x4[MaxBatch];
-        wheelMats = new Matrix4x4[cars.Length][][];
-        wheelCount = new int[cars.Length];
-        for (int m = 0; m < cars.Length; m++)
+        bodyMats = new Matrix4x4[nb * 2][];
+        bodyCount = new int[nb * 2];
+        for (int i = 0; i < nb * 2; i++) bodyMats[i] = new Matrix4x4[MaxBatch];
+        wheelMats = new Matrix4x4[cars.Length * 2][][];
+        wheelCount = new int[cars.Length * 2];
+        for (int m = 0; m < cars.Length * 2; m++)
         {
             wheelMats[m] = new Matrix4x4[4][];
             for (int w = 0; w < 4; w++) wheelMats[m][w] = new Matrix4x4[MaxBatch];
         }
 
-        pool = new Proxy[proxies];
-        for (int i = 0; i < proxies; i++) pool[i] = MakeProxy("Proxy" + i, i, i % cars.Length);
-        parkPool = new Proxy[parkedProxies * cars.Length];
-        for (int i = 0; i < parkPool.Length; i++) parkPool[i] = MakeProxy("Parked" + i, ParkedIndex + i, i % cars.Length);
+        // proxies per model in proportion to its share of the traffic (at least 2), parked ones for the models that park
+        var proxyModels = new List<int>();
+        float wsum = 0;
+        foreach (float w in weight) wsum += w;
+        for (int m = 0; m < cars.Length; m++)
+            for (int n = Mathf.Max(2, Mathf.RoundToInt(proxies * weight[m] / wsum)); n > 0; n--) proxyModels.Add(m);
+        pool = new Proxy[proxyModels.Count];
+        for (int i = 0; i < pool.Length; i++) pool[i] = MakeProxy("Proxy" + i, i, proxyModels[i]);
+        var parkModels = new List<int>();
+        for (int m = 0; m < cars.Length; m++) if (parks[m]) parkModels.Add(m);
+        parkPool = new Proxy[parkedProxies * parkModels.Count];
+        for (int i = 0; i < parkPool.Length; i++) parkPool[i] = MakeProxy("Parked" + i, ParkedIndex + i, parkModels[i % parkModels.Count]);
         var spots = new List<Parked>();
         for (int k = 0; k + 4 < parkedRaw.Length; k += 5)
         {
             if (Random.value >= parkedOccupancy) continue;
-            int m = Random.Range(0, cars.Length);
+            int m = parkModels[Random.Range(0, parkModels.Count)];
             var pos = new Vector3(parkedRaw[k], parkedRaw[k + 1], parkedRaw[k + 2]);
             var rot = Quaternion.LookRotation(new Vector3(parkedRaw[k + 3], 0, parkedRaw[k + 4]));
             spots.Add(new Parked { pos = pos, rot = rot, m = Matrix4x4.TRS(pos, rot, Vector3.one), model = m, paint = Random.Range(0, cars[m].paints), proxy = -1 });
@@ -308,7 +328,11 @@ public class TrafficSystem : MonoBehaviour
 
     Car NewCar()
     {
-        int m = Random.Range(0, cars.Length);
+        float total = 0;
+        foreach (float w in weight) total += w;
+        float r = Random.value * total;
+        int m = 0;
+        while (m < cars.Length - 1 && (r -= weight[m]) > 0) m++;
         return new Car { model = m, paint = Random.Range(0, cars[m].paints), proxy = -1, next = -1 };
     }
 
@@ -448,16 +472,16 @@ public class TrafficSystem : MonoBehaviour
         }
         foreach (var p in pool)
             if (p.wreck && p.go.activeSelf)
-                AddObstacle(new Obstacle { pos = p.rb.position, fwd = Flat(p.go.transform.forward), right = Flat(p.go.transform.right), vel = p.rb.linearVelocity, halfL = HalfLength, halfW = HalfWidth, kind = 4 });
+                AddObstacle(new Obstacle { pos = p.rb.position, fwd = Flat(p.go.transform.forward), right = Flat(p.go.transform.right), vel = p.rb.linearVelocity, halfL = halfL[p.model], halfW = halfW[p.model], kind = 4 });
         foreach (var p in parkPool)
             if (p.go.activeSelf && (parked[p.car].moved || !p.rb.IsSleeping()))
-                AddObstacle(new Obstacle { pos = p.rb.position, fwd = Flat(p.go.transform.forward), right = Flat(p.go.transform.right), vel = p.rb.linearVelocity, halfL = HalfLength, halfW = HalfWidth, kind = 4 });
+                AddObstacle(new Obstacle { pos = p.rb.position, fwd = Flat(p.go.transform.forward), right = Flat(p.go.transform.right), vel = p.rb.linearVelocity, halfL = halfL[p.model], halfW = halfW[p.model], kind = 4 });
         foreach (int k in movedParked)
             if (parked[k].proxy < 0)
-                AddObstacle(new Obstacle { pos = parked[k].pos, fwd = Flat(parked[k].rot * Vector3.forward), right = Flat(parked[k].rot * Vector3.right), halfL = HalfLength, halfW = HalfWidth, kind = 4 });
+                AddObstacle(new Obstacle { pos = parked[k].pos, fwd = Flat(parked[k].rot * Vector3.forward), right = Flat(parked[k].rot * Vector3.right), halfL = halfL[parked[k].model], halfW = halfW[parked[k].model], kind = 4 });
         for (int i = 0; i < (carsSim?.Length ?? 0); i++)
             if (Mathf.Abs(carsSim[i].off) > 0.6f)
-                AddObstacle(new Obstacle { pos = carsSim[i].pos, fwd = carsSim[i].fwd, right = new Vector3(carsSim[i].fwd.z, 0, -carsSim[i].fwd.x), vel = carsSim[i].fwd * carsSim[i].speed, halfL = HalfLength, halfW = HalfWidth, kind = 12, car = i + 1 });
+                AddObstacle(new Obstacle { pos = carsSim[i].pos, fwd = carsSim[i].fwd, right = new Vector3(carsSim[i].fwd.z, 0, -carsSim[i].fwd.x), vel = carsSim[i].fwd * carsSim[i].speed, halfL = halfL[carsSim[i].model], halfW = halfW[carsSim[i].model], kind = 12, car = i + 1 });
         if (crowd)
             foreach (var q in crowd.Crossing)
                 AddObstacle(new Obstacle { pos = new Vector3(q.x, 0, q.y), fwd = Vector3.forward, right = Vector3.right, halfL = 0.4f, halfW = 0.4f, kind = 5 });
@@ -493,6 +517,7 @@ public class TrafficSystem : MonoBehaviour
         float gap = Ahead(i, ref c, out float vAhead);
         if (gap < Look && (v = Follow(gap, vAhead)) < vMax) { vMax = v; why = 2; }
         var right = new Vector3(c.fwd.z, 0, -c.fwd.x);
+        float hl = halfL[c.model], hw = halfW[c.model];
         float stillAlong = 1e9f, stillShift = 0;   // nearest still obstacle on the lane centre, shift that passes it
         int cell = CellOf(c.pos), ci = cell % Cells, cj = cell / Cells;
         for (int j = Mathf.Max(0, cj - 1); j <= Mathf.Min(Cells - 1, cj + 1); j++)
@@ -508,16 +533,15 @@ public class TrafficSystem : MonoBehaviour
                     if (along < -7 || along > 45) continue;
                     float half = Mathf.Abs(Vector3.Dot(right, o.fwd)) * o.halfL + Mathf.Abs(Vector3.Dot(right, o.right)) * o.halfW;
                     float lat = Vector3.Dot(rel, right), latC = lat + c.off;   // from the car / from the lane centre
-                    if ((o.kind == 3 || o.kind == 4) && o.vel.sqrMagnitude < 0.25f && Mathf.Abs(latC) < half + HalfWidth && along < stillAlong)
+                    if ((o.kind == 3 || o.kind == 4) && o.vel.sqrMagnitude < 0.25f && Mathf.Abs(latC) < half + hw && along < stillAlong)
                     {
                         stillAlong = along;
-                        float l = latC - half - HalfWidth - 0.4f, r = latC + half + HalfWidth + 0.4f;
+                        float l = latC - half - hw - 0.4f, r = latC + half + hw + 0.4f;
                         stillShift = Mathf.Abs(l) < Mathf.Abs(r) ? l : r;
                     }
-                    if (along < -1 || Mathf.Abs(lat) > half + HalfWidth) continue;
-                    float extent = half + HalfWidth;
+                    if (along < -1 || Mathf.Abs(lat) > half + hw) continue;
                     float reach = Mathf.Abs(Vector3.Dot(c.fwd, o.fwd)) * o.halfL + Mathf.Abs(Vector3.Dot(c.fwd, o.right)) * o.halfW;
-                    if ((v = Follow(along - reach - HalfLength, Mathf.Max(0, Vector3.Dot(o.vel, c.fwd)))) < vMax) { vMax = v; why = o.kind; }
+                    if ((v = Follow(along - reach - hl, Mathf.Max(0, Vector3.Dot(o.vel, c.fwd)))) < vMax) { vMax = v; why = o.kind; }
                 }
             }
         if (c.next >= 0 && MustStop(ref c, lane, gap, vAhead))
@@ -591,9 +615,29 @@ public class TrafficSystem : MonoBehaviour
         for (int b = bucketStart[c.lane]; b < bucketStart[c.lane + 1]; b++)
         {
             int k = bucket[b];
-            if (k == i || carsSim[k].s <= c.s) continue;
-            float d = carsSim[k].s - c.s - CarLength;
+            if (k == i || carsSim[k].s < c.s || (carsSim[k].s == c.s && k < i)) continue;   // same spot: the lower index waits
+            float d = carsSim[k].s - c.s - halfL[c.model] - halfL[carsSim[k].model];
             if (d < gap) { gap = d; vAhead = carsSim[k].speed; }
+        }
+        // inside a junction (and on merge lanes) paths from other lanes meet ours: follow any car standing right in
+        // front of us whatever its lane, else a queue backing up into the junction stacks two cars where the paths meet
+        var lane = lanes[c.lane];
+        if (lane.junction >= 0 || lane.turn == 6)
+        {
+            var right = new Vector3(c.fwd.z, 0, -c.fwd.x);
+            int cell = CellOf(c.pos), ci = cell % Cells, cj = cell / Cells;
+            for (int j = Mathf.Max(0, cj - 1); j <= Mathf.Min(Cells - 1, cj + 1); j++)
+                for (int ii = Mathf.Max(0, ci - 1); ii <= Mathf.Min(Cells - 1, ci + 1); ii++)
+                    for (int n = carCellStart[j * Cells + ii]; n < carCellStart[j * Cells + ii + 1]; n++)
+                    {
+                        int k = carItems[n];
+                        if (k == i || carsSim[k].lane == c.lane) continue;
+                        var rel = carsSim[k].pos - c.pos;
+                        float along = Vector3.Dot(rel, c.fwd);
+                        if (along <= 0 || along > 12f || Mathf.Abs(Vector3.Dot(rel, right)) > 1.6f) continue;
+                        float d = along - halfL[c.model] - halfL[carsSim[k].model];
+                        if (d < gap) { gap = d; vAhead = Mathf.Max(0, Vector3.Dot(carsSim[k].fwd, c.fwd)) * carsSim[k].speed; }
+                    }
         }
         if (gap < Look) return gap;
         float off = lanes[c.lane].length - c.s;
@@ -603,7 +647,7 @@ public class TrafficSystem : MonoBehaviour
             for (int b = bucketStart[l]; b < bucketStart[l + 1]; b++)
             {
                 int k = bucket[b];
-                float d = off + carsSim[k].s - CarLength;
+                float d = off + carsSim[k].s - halfL[c.model] - halfL[carsSim[k].model];
                 if (d < gap) { gap = d; vAhead = carsSim[k].speed; }
             }
             if (gap < Look) return gap;
@@ -630,7 +674,7 @@ public class TrafficSystem : MonoBehaviour
         var nx = lanes[c.next];
         // do not block the box: enter only if the lane after the junction has room for this car too
         stopWhy = 6;
-        if (nx.junction >= 0 && lane.junction < 0 && !RoomAfter(nx)) return true;
+        if (nx.junction >= 0 && lane.junction < 0 && !RoomAfter(nx, 2 * halfL[c.model])) return true;
         int ctl = lane.stopJunction >= 0 ? control[lane.stopJunction] : 0;
         if (ctl == 1)
         {
@@ -666,7 +710,7 @@ public class TrafficSystem : MonoBehaviour
             int ci = nx.conflicts[k];
             if (laneStamp[ci] == frame) return true;
             for (int b = bucketStart[ci]; b < bucketStart[ci + 1]; b++)
-                if (carsSim[bucket[b]].s < nx.conflictPast[k]) return true;   // still before our crossing point
+                if (carsSim[bucket[b]].s < nx.conflictPast[k] + halfL[carsSim[bucket[b]].model] - HalfLength) return true;   // still before our crossing point (a bus clears it later)
             if (!approaching) continue;
             foreach (int p in lanes[ci].prev) if (Coming(p, ci, Horizon(p))) return true;
         }
@@ -680,12 +724,12 @@ public class TrafficSystem : MonoBehaviour
     }
 
     // room on the lane a connector leads to, counting the cars on it and the ones in the connectors feeding it
-    bool RoomAfter(Lane nx)
+    bool RoomAfter(Lane nx, float length)
     {
         if (nx.next.Length == 0) return true;
         int exit = nx.next[0], n = bucketStart[exit + 1] - bucketStart[exit];
         foreach (int p in lanes[exit].prev) if (lanes[p].junction >= 0) n += bucketStart[p + 1] - bucketStart[p];
-        return (n + 1) * (CarLength + minGap + 0.5f) <= lanes[exit].length;
+        return n == 0 || n * (CarLength + minGap + 0.5f) + length + minGap + 0.5f <= lanes[exit].length;   // an empty lane takes a bus
     }
 
     // priority between lanes joining the same lane: main lanes, ring, straight, right, left, merge lanes; ties by index
@@ -743,11 +787,21 @@ public class TrafficSystem : MonoBehaviour
         for (int i = 0; i < carsSim.Length; i++)
         {
             ref var c = ref carsSim[i];
-            if (c.proxy >= 0 || (c.pos - playerPos).sqrMagnitude > near2) continue;
+            if (c.proxy >= 0 || (c.pos - playerPos).sqrMagnitude > near2 || Occupied(c.pos)) continue;
             var p = FreeProxy(c.model);
             if (p == null) return;
             Attach(p, i);
         }
+    }
+
+    // a body already stands there (another proxy, a wreck, the player): a proxy spawned inside it would be thrown
+    // out by the physics, so the car stays visual-only until the spot clears
+    bool Occupied(Vector3 pos)
+    {
+        const float r2 = 2.5f * 2.5f;
+        if ((playerPos - pos).sqrMagnitude < r2) return true;
+        foreach (var q in pool) if (q.go.activeSelf && (q.rb.position - pos).sqrMagnitude < r2) return true;
+        return false;
     }
 
     Proxy FreeProxy(int model)
@@ -773,9 +827,7 @@ public class TrafficSystem : MonoBehaviour
         // live traffic cars never crash into each other (the lane rules keep them apart, a near miss must not wreck
         // them); wrecks collide with everything
         foreach (var q in pool) if (q != p) Physics.IgnoreCollision(p.box, q.box, !q.wreck);
-        var mats = new Material[car.subMeshes];
-        for (int s = 0; s < car.subMeshes; s++) mats[s] = car.Mat(c.paint, s);
-        p.body.sharedMaterials = mats;
+        p.body.sharedMaterials = car.Mats(c.paint);
         p.rb.isKinematic = false;
         p.rb.useGravity = false;
         p.rb.sleepThreshold = 0;   // driven every physics step: a sleeping body would stay behind at a green light
@@ -929,9 +981,7 @@ public class TrafficSystem : MonoBehaviour
     {
         ref var q = ref parked[k];
         var car = cars[q.model];
-        var mats = new Material[car.subMeshes];
-        for (int s = 0; s < car.subMeshes; s++) mats[s] = car.Mat(q.paint, s);
-        p.body.sharedMaterials = mats;
+        p.body.sharedMaterials = car.Mats(q.paint);
         foreach (var w in p.wheels) w.localRotation = Quaternion.identity;
         p.car = k;
         p.wreck = true;
@@ -1028,24 +1078,26 @@ public class TrafficSystem : MonoBehaviour
     bool Visible(Vector3 p)
     {
         var c = p + new Vector3(0, 0.8f, 0);
-        foreach (var pl in planes) if (pl.GetDistanceToPoint(c) < -2.5f) return false;
+        foreach (var pl in planes) if (pl.GetDistanceToPoint(c) < -6f) return false;   // a bus is 10.6 m long
         return true;
     }
 
     void Draw()
     {
-        float draw2 = drawDistance * drawDistance;
+        float draw2 = drawDistance * drawDistance, sh2 = shadowDistance * shadowDistance;
         System.Array.Clear(bodyCount, 0, bodyCount.Length);
         System.Array.Clear(wheelCount, 0, wheelCount.Length);
         for (int i = 0; i < carsSim.Length; i++)
         {
             ref var c = ref carsSim[i];
-            if (c.proxy >= 0 || (c.pos - camPos).sqrMagnitude > draw2 || !Visible(c.pos)) continue;
-            int m = c.model, k = 0;
-            for (int j = 0; j < m; j++) k += cars[j].paints;
-            k += c.paint;
+            float d2 = (c.pos - camPos).sqrMagnitude;
+            if (c.proxy >= 0 || d2 > draw2 || !Visible(c.pos)) continue;
+            int sh = d2 < sh2 ? 1 : 0, k = 0;
+            for (int j = 0; j < c.model; j++) k += cars[j].paints;
+            k = (k + c.paint) * 2 + sh;
+            int m = c.model * 2 + sh;
             if (bodyCount[k] == MaxBatch || wheelCount[m] == MaxBatch) continue;
-            var car = cars[m];
+            var car = cars[c.model];
             var rot = Quaternion.LookRotation(c.fwd);
             var M = Matrix4x4.TRS(c.pos, rot, Vector3.one);
             bodyMats[k][bodyCount[k]++] = M;
@@ -1057,11 +1109,14 @@ public class TrafficSystem : MonoBehaviour
         for (int i = 0; i < parked.Length; i++)
         {
             ref var q = ref parked[i];
-            if (q.proxy >= 0 || (q.pos - camPos).sqrMagnitude > draw2 || !Visible(q.pos)) continue;
-            int m = q.model, k = q.paint;
-            for (int j = 0; j < m; j++) k += cars[j].paints;
+            float d2 = (q.pos - camPos).sqrMagnitude;
+            if (q.proxy >= 0 || d2 > draw2 || !Visible(q.pos)) continue;
+            int sh = d2 < sh2 ? 1 : 0, k = q.paint;
+            for (int j = 0; j < q.model; j++) k += cars[j].paints;
+            k = k * 2 + sh;
+            int m = q.model * 2 + sh;
             if (bodyCount[k] == MaxBatch || wheelCount[m] == MaxBatch) continue;
-            var car = cars[m];
+            var car = cars[q.model];
             bodyMats[k][bodyCount[k]++] = q.m;
             for (int w = 0; w < 4; w++) wheelMats[m][w][wheelCount[m]] = q.m * Matrix4x4.Translate(car.wheelPos[w]);
             wheelCount[m]++;
@@ -1071,14 +1126,20 @@ public class TrafficSystem : MonoBehaviour
         {
             var car = cars[m];
             for (int p = 0; p < car.paints; p++, b++)
+                for (int sh = 0; sh < 2; sh++)
+                {
+                    int k = b * 2 + sh;
+                    if (bodyCount[k] == 0) continue;
+                    for (int s = 0; s < car.subMeshes; s++)
+                        Graphics.DrawMeshInstanced(car.body, s, car.Mat(p, s), bodyMats[k], bodyCount[k], null, sh == 1 ? ShadowCastingMode.On : ShadowCastingMode.Off, true, gameObject.layer);
+                }
+            for (int sh = 0; sh < 2; sh++)
             {
-                if (bodyCount[b] == 0) continue;
-                for (int s = 0; s < car.subMeshes; s++)
-                    Graphics.DrawMeshInstanced(car.body, s, car.Mat(p, s), bodyMats[b], bodyCount[b], null, ShadowCastingMode.On, true, gameObject.layer);
+                int k = m * 2 + sh;
+                if (wheelCount[k] == 0) continue;
+                for (int w = 0; w < 4; w++)
+                    Graphics.DrawMeshInstanced(car.wheels[w], 0, car.wheelMaterial, wheelMats[k][w], wheelCount[k], null, sh == 1 ? ShadowCastingMode.On : ShadowCastingMode.Off, true, gameObject.layer);
             }
-            if (wheelCount[m] == 0) continue;
-            for (int w = 0; w < 4; w++)
-                Graphics.DrawMeshInstanced(car.wheels[w], 0, car.wheelMaterial, wheelMats[m][w], wheelCount[m], null, ShadowCastingMode.On, true, gameObject.layer);
         }
     }
 
@@ -1099,9 +1160,10 @@ public class TrafficSystem : MonoBehaviour
             var to = q - p;
             float d = to.magnitude;
             if (d > 40f) continue;
-            if (d < HalfLength + 1.5f) return false;   // on it
+            float hl = halfL[c.model];
+            if (d < hl + 1.5f) return false;   // on it
             bool toward = Vector2.Dot(to, new Vector2(c.fwd.x, c.fwd.z)) > 0.3f * d;
-            if (toward && (c.stopped > 4f || (c.speed > 1f && d < HalfLength + 4f + c.speed * 3f))) return false;
+            if (toward && (c.stopped > 4f || (c.speed > 1f && d < hl + 4f + c.speed * 3f))) return false;
         }
         return true;
     }
@@ -1193,4 +1255,5 @@ public class TrafficSystem : MonoBehaviour
         return sb.ToString();
     }
     public Vector3 Position(int i, out Vector3 fwd, out float speed) { fwd = carsSim[i].fwd; speed = carsSim[i].speed; return carsSim[i].pos; }
+    public string Model(int i) => cars[carsSim[i].model].name;
 }

@@ -1,11 +1,13 @@
 """cars: bring Fabien's car models (Art/Cars/*.blend) into Unity.
 
-    import cars; cars.export_car('W123i')   # -> Assets/GTA/Cars/W123i.fbx + T_<material>.png
+    import cars; cars.export_car('W123i')   # -> Assets/GTA/Cars/W123i.fbx + T_<material>.png (the player's car)
+    cars.export_car('W110', traffic=True)   # -> Assets/GTA/Cars/Traffic/W110.fbx (GTA > Build Traffic Cars)
 
 The car is appended into a 'Car' scene, turned so its front points to Blender -Y (Unity +Z), rotations baked
 (wheel origins stay at the wheel centers, wheels keep their names *_Wheel_FL/FR/RL/RR), white vertex colors added
-for PS1Lit, atlases saved as T_<material>.png. Semi-transparent materials are renamed '<atlas material>__Glass' so
-the import rules make them see-through with the same atlas.
+for PS1Lit, atlases saved as T_<material>.png. Semi-transparent materials are renamed
+'<atlas material>__Glass' so the import rules make them see-through with the same atlas. When the .blend holds
+several cars, only the objects named '<name>_*' are taken.
 """
 import math
 import os
@@ -20,7 +22,7 @@ ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
 CARS_DIR = os.path.join(ROOT, 'Assets', 'GTA', 'Cars')
 
 
-def export_car(name, front_axis='+X'):
+def export_car(name, front_axis='+X', traffic=False):
     path = os.path.join(ROOT, 'Art', 'Cars', name + '.blend')
     col = rn.collection('Car')
     with bpy.data.libraries.load(path, link=False) as (src, dst):
@@ -31,6 +33,7 @@ def export_car(name, front_axis='+X'):
     with bpy.data.libraries.load(path, link=False) as (src, dst):
         dst.objects = list(src.objects)
     objs = [o for o in dst.objects if o and o.type == 'MESH']
+    objs = [o for o in objs if o.name.startswith(name + '_')] or objs
     yaw = {'+X': -math.pi / 2, '-X': math.pi / 2, '+Y': math.pi, '-Y': 0.0}[front_axis]
     for ob in objs:
         col.objects.link(ob)
@@ -69,6 +72,7 @@ def export_car(name, front_axis='+X'):
             shutil.copyfile(bpy.path.abspath(img.filepath), out)
         subprocess.run(['python', '-I', '-c', 'import sys; from PIL import Image; '
                         'Image.open(sys.argv[1]).convert("RGB").save(sys.argv[1])', out], check=True)
-    os.makedirs(CARS_DIR, exist_ok=True)
-    rn.export_fbx(os.path.join(CARS_DIR, name + '.fbx'), objs)
+    out_dir = os.path.join(CARS_DIR, 'Traffic') if traffic else CARS_DIR
+    os.makedirs(out_dir, exist_ok=True)
+    rn.export_fbx(os.path.join(out_dir, name + '.fbx'), objs)
     return {'objects': [o.name for o in objs], 'textures': sorted(t for t, _ in textures)}
