@@ -1,0 +1,40 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 146eb5f63af43e243a803dfeb2b269e9, type: 3}
+  m_Name: S5
+  m_EditorClassIdentifier: 
+  body: {fileID: 4300000, guid: d1a0ea723f40e0842ac1f8b9c65c6bec, type: 2}
+  wheels:
+  - {fileID: 4300000, guid: 5d19b3f80e539f94b8b291d621c4311a, type: 2}
+  - {fileID: 4300000, guid: 24247e2e0a41e3046b7edd02332ffda5, type: 2}
+  - {fileID: 4300000, guid: 56694db10807c0e42b0c60af9eb43ebe, type: 2}
+  - {fileID: 4300000, guid: 758ab4176f98027479716d81a638baf3, type: 2}
+  wheelPos:
+  - {x: -0.7758121, y: 0.331, z: 1.442674}
+  - {x: 0.7758121, y: 0.331, z: 1.442674}
+  - {x: -0.7758121, y: 0.331, z: -1.4038469}
+  - {x: 0.7758121, y: 0.331, z: -1.4038469}
+  wheelRadius: 0.331
+  wheelBase: 2.846521
+  boxCenter: {x: 0, y: 0.8988364, z: -0.02566719}
+  boxSize: {x: 1.8371286, y: 0.93567276, z: 4.5465856}
+  paints: 6
+  subMeshes: 1
+  materials:
+  - {fileID: 2100000, guid: d8e4c31f3a6d67940bcf88b5cd444097, type: 2}
+  - {fileID: 2100000, guid: 468f3e644d044b348afc3aa209db1bf4, type: 2}
+  - {fileID: 2100000, guid: 18302ec3d76a81d42adf531ebf9c4fb5, type: 2}
+  - {fileID: 2100000, guid: dbb2dffdf17dd3646b5ebd6aa60b0255, type: 2}
+  - {fileID: 2100000, guid: 50bf4825cc54f2744b9e99e5f274aee2, type: 2}
+  - {fileID: 2100000, guid: c652a76370e81804dbe58b56434d2b27, type: 2}
+  wheelMaterial: {fileID: 2100000, guid: d8e4c31f3a6d67940bcf88b5cd444097, type: 2}
+  proxy: {fileID: 7007343557615178641, guid: f5a90f07bd149a84fa345e405c00d22a, type: 3}

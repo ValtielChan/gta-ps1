@@ -16,6 +16,7 @@ import os
 
 import numpy as np
 from PIL import Image
+from scipy import ndimage
 
 PAINTS = {                                      # name: (hue in degrees or None = keep, saturation x, value x)
     'Red': (2, 1.0, 0.85), 'White': (None, 0.05, 1.45), 'Black': (None, 0.15, 0.32), 'Beige': (42, 0.45, 1.2),
@@ -38,13 +39,19 @@ def paint_mask(h, s, v):
     bins = {peak}
     for step in (1, -1):
         b = (peak + step) % 36
-        while hist[b] >= 0.05 * hist[peak] and b not in bins:
+        while hist[b] >= 0.02 * hist[peak] and b not in bins:
             bins.add(b)
             b = (b + step) % 36
-    in_hue = np.isin((h // 10).astype(int) % 36, list(bins)) & (s > 0.22)
+    in_hue = np.isin((h // 10).astype(int) % 36, list(bins)) & (s > 0.12)
     white = (s < 0.15) & (v > 0.55)
     if white.sum() > in_hue.sum():
-        return white, True
+        # the chrome rims are bright and unsaturated too: keep only the big patches (body panels), drop the
+        # small islands (rims, trim, badges)
+        labels, n = ndimage.label(white)
+        sizes = ndimage.sum(white, labels, range(1, n + 1))
+        keep = np.zeros(n + 1, bool)
+        keep[1:] = sizes >= 0.1 * white.sum()
+        return keep[labels], True
     cap = np.percentile(v[in_hue & chroma], 90) * 1.5   # lights are far brighter than the paint around them
     return in_hue & (v <= cap), False
 

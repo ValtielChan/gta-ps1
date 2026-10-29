@@ -16,13 +16,14 @@ Same philosophy as the crowd (skill `ps1-npc`): cars are plain structs simulated
 | `Tools/citygen/city_demo.py` | `parking_spots()` (curbside + lot stalls), `write_traffic()`, `export_traffic()` |
 | `Assets/GTA/City/<Scene>_traffic.json` | Lanes (polylines in travel order, Unity coords, speed, junction, turn, arm, next), junctions (control), `parked` (x, y, z, fwd x, fwd z) |
 | `Assets/GTA/Scripts/TrafficSystem.cs` | Simulation, drawing, proxies, wrecks, parked cars, dev checks (`Stats`, `Heads`, `Chain`, `Stuck`) |
+| `Assets/GTA/Scripts/CarDamage.cs` | Damage of the proxies (added at runtime by `MakeProxy`): dents the body mesh at each impact (> 2 m/s along the normal, vertices pushed toward the centre, crumple, darker vertex colors), smoke from the hood past `damage` 1 (black at 2.5), one shared particle system, `M_Smoke` / `T_Smoke` (`Tools/texture/smoke.py`); `Repair()` on attach. The player's car has none |
 | `Assets/GTA/Scripts/TrafficCar.cs`, `TrafficProxy.cs` | Baked car model asset (combined body, wheels, paints, proxy prefab); collision forwarder |
 | `Assets/GTA/Editor/TrafficBuild.cs` | Menus **GTA > Build Traffic Cars** and **GTA > Setup Traffic In Open Scene** |
 | `Assets/GTA/Traffic/` | Built: `<Car>.asset`, `<Car>_Body/_Wheel0..3.asset`, `M_<Car>_<Paint>(.mat / _Glass.mat)`, `M_<Car>_<Interior>` |
 | `Assets/GTA/Prefabs/Traffic/<Car>_Traffic.prefab` | Proxy: rigidbody (car mass) + box + combined body + 4 wheels |
-| `Tools/texture/car_paint.py` | `T_<Atlas>.png` -> `T_<Atlas>_<Paint>.png` (body paint found in the atlas: hue window or white body; lights, chrome, glass, tires kept) |
+| `Tools/texture/car_paint.py` | `T_<Atlas>.png` -> `T_<Atlas>_<Paint>.png` (body paint found in the atlas: hue window or white body minus the small bright islands such as rims; lights, chrome, glass, tires kept) |
 | `Tools/citygen/cars.py` `export_car(name, traffic=True)` | `Art/Cars/<Name>.blend` -> `Assets/GTA/Cars/Traffic/<Name>.fbx` + `T_<material>.png` |
-| `Assets/GTA/Cars/Traffic/` | Traffic models (W123 without interior, W110, TS35 bus); the player's W123i (with interior) stays out of the traffic |
+| `Assets/GTA/Cars/Traffic/` | Traffic models (W123 without interior, W110, S5, R5Turbo, Chevelle69, TS35 bus); the player's W123i (with interior) stays out of the traffic |
 
 ## Lane graph (Python, `traffic_graph`)
 
@@ -55,7 +56,11 @@ Check it with a top-down PIL plot of the lanes (arrows, colored by `turn`) and t
 
 - **Population around the player (GTA style)**: up to `count` (700) cars placed within `liveRadius` (450 m), at
   most one per `laneSpacing` (45 m) of lane (so ~440 in downtown); an unseen car beyond `recycleDistance` (520 m)
-  is re-placed around the player (6 per frame). A car stuck more than `jamTime` (30 s) unseen and > 80 m away is
+  is re-placed around the player (6 per frame).
+- **Quieter suburbs**: outside downtown (`CrowdSystem.downtownHalf`, inside the ring highway) a road lane holds
+  `suburbTraffic` (0.35) of the downtown density (per-lane `cap`, rounded at random so short streets get one car or
+  none), parked spots are taken at `parkedOccupancy` x `suburbParked` (0.4); an unseen car on a suburban lane over its
+  cap (cars turning in from the busy roads) is re-placed elsewhere. A failed re-placement waits `jamTime` again. A car stuck more than `jamTime` (30 s) unseen and > 80 m away is
   re-placed too (gridlocks the player cannot see dissolve).
 - Each car keeps its lane and picks its `next` on entering a lane (weights: straight 2, right 1.5, left 1, ring
   1.5, exit 0.5). Car ahead = next car on the lane, then along the `next` lanes (60 m). `Follow` = min(sqrt(v^2 +
@@ -66,7 +71,9 @@ Check it with a top-down PIL plot of the lanes (arrows, colored by `turn`) and t
   - signal: `Phase` per junction, random offset, cycle 2 x (green 9 + yellow 2.5 + all-red 1) s; red stops, yellow
     stops if it can, a left turner waiting at the line clears on yellow; green goes unless a conflicting connector
     is occupied before the crossing point (left turns also wait for oncoming cars within 3 s);
-  - all-way stop: full stop at the line, then first stopped, first gone (cars still arriving don't count);
+  - all-way stop: full stop at the line (remembered in `stopDone` until the lane changes: creeping on resets
+    `stopped`, which used to loop forever and gridlock every stop-sign district), then first stopped, first gone
+    (cars still arriving don't count);
   - yield / uncontrolled / merges: wait for cars on or coming to a conflicting connector; connectors and merge
     lanes yield to the other feeders of the lane they join by rank (main, ring, straight, right, left, merge).
   - waiting > 6 s at a non-signal junction: go anyway (patience).
@@ -89,7 +96,7 @@ Check it with a top-down PIL plot of the lanes (arrows, colored by `turn`) and t
   body at rest (asleep) that can be pushed, rammed, thrown; released at 1.3x the radius once asleep, keeping the
   pose it was left in (`moved` -> obstacle for traffic).
 - Drawing: body (one submesh per material: paint, glass if any) per paint + 4 wheels (spin, steering from the
-  lane curvature), frustum / distance (300 m) culled, shadows on. Proxied cars render themselves.
+  lane curvature), frustum / distance (300 m) culled, no shadows: a PS1 blob quad (`BlobShadow`, `M_Blob`) under every car within `blobDistance` (120 m), proxies included. Proxied cars render themselves.
 
 Measured (editor, 2026-10-26): ~440 moving + ~660 parked cars, 1.0-1.5 ms per frame; after 3 min with the
 player parked downtown: 71 % moving, mean 35 km/h, no queue head stopped > 20 s.
@@ -121,5 +128,6 @@ player parked downtown: 71 % moving, mean 35 km/h, no queue head stopped > 20 s.
 - No lane changes (except passing still obstacles), no overtaking; highway inner lanes never exit.
 - Signal heads are static meshes (all lamps lit): drive the `SignalHead` lamps from `TrafficSystem.Phase`.
 - One ring lane; permissive left turns; no right on red; no green waves (random offsets).
+- Parked cars lose their dents once they go static again (beyond 1.3 x `parkRadius`).
 - Traffic cars do not hit pedestrians (only the player's car does).
 - Stop-controlled T junctions are all-way stops (the generator puts a sign on every arm).

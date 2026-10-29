@@ -19,6 +19,11 @@ public class GameAudio : MonoBehaviour
     public AudioClip[] screamMale, screamFemale;
     public AudioClip[] shout;        // bystanders
     public AudioClip[] panic;        // crowd panic bed
+    [Header("Protests")]
+    public AudioClip[] baton;        // riot police clubbing someone
+    public AudioClip[] armor;        // car against a riot policeman (armour, shield)
+    public AudioClip[] rock;         // thrown paving stone against a shield / the car
+    public AudioClip protest;        // chanting crowd loop (CrowdSystem.protestLoop)
     [Header("Traffic")]
     public AudioClip[] horn;
     [Header("Beds")]

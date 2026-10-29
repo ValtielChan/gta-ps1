@@ -9,5 +9,7 @@ public class CrowdCharacter : ScriptableObject
     public int[] clipStart, clipFrames;   // VAT rows of each clip: 0 = idle, 1 = walk
     public AnimationClip[] clips;         // same clips, to pose the ragdoll on the frame the pedestrian was showing
     public float fps = 20;
+    public bool eventOnly;                // protesters / riot police (gear baked in): never a walker
+    public Vector3 lieHips, lieHead;      // root space, last frame of the fall clip (standing a ragdoll back up)
     public GameObject ragdoll;            // skinned model + Animator + physics bodies (kinematic until thrown)
 }

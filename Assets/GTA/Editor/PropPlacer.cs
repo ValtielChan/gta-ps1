@@ -34,10 +34,25 @@ public static class PropPlacer
             string prefab = PrefabDir + "/" + Path.GetFileNameWithoutExtension(path) + ".prefab";
             if (File.Exists(prefab)) continue;   // variants follow model re-imports by themselves
             var inst = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(path));
-            foreach (var t in inst.GetComponentsInChildren<Transform>()) t.gameObject.isStatic = true;
+            foreach (var t in inst.GetComponentsInChildren<Transform>())
+            {
+                bool rotor = t.name.EndsWith("_Rotor");   // moving part (wind turbine), see Spin
+                t.gameObject.isStatic = !rotor;
+                if (rotor) t.gameObject.AddComponent<Spin>();
+            }
             PrefabUtility.SaveAsPrefabAsset(inst, prefab);
             UnityEngine.Object.DestroyImmediate(inst);
         }
+    }
+
+    // draw distance class (PS1Resolution layer cull distances): trees keep their billboard LODs, turbines and
+    // tall lamps stay on the skyline, houses and street furniture pop in inside the fog
+    static string Layer(string prefab)
+    {
+        if (prefab.StartsWith("House") || prefab.StartsWith("Ranch") || prefab.StartsWith("Mansion")) return "Houses";
+        if (prefab.StartsWith("Palm") || prefab.StartsWith("Broadleaf") || prefab == "WindTurbine") return "Default";
+        if (prefab.EndsWith("Lamp") || prefab == "PowerPole" || prefab == "SignalHead" || prefab == "BusStop") return "Details";
+        return "SmallProps";
     }
 
     // Blender (x, y, z) -> Unity (-x, z, -y); Blender yaw (CCW, radians) -> Unity yaw = -yaw.
@@ -53,6 +68,8 @@ public static class PropPlacer
             if (!prefab) { Debug.LogWarning("Missing prefab " + it.prefab); continue; }
             var go = (GameObject)PrefabUtility.InstantiatePrefab(prefab, root.transform);
             go.transform.SetPositionAndRotation(new Vector3(-it.x, it.z, -it.y), Quaternion.Euler(0, -it.yaw * Mathf.Rad2Deg, 0));
+            int layer = LayerMask.NameToLayer(Layer(it.prefab));
+            foreach (var t in go.GetComponentsInChildren<Transform>(true)) t.gameObject.layer = layer;
         }
     }
 }

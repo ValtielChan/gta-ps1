@@ -195,6 +195,135 @@ def building(style, w, d, floors, rnd, blind=('N',), awnings=0.25):
     return m
 
 
+# ------------------------------------------------------------------ houses (residential districts, prefabs)
+# One texture family per house style: wall tile (box mapped), 4 m bays fitted on one floor (window, front door,
+# garage door), roof tile. Siding is neutral white -> tinted per prefab (HOUSE_TINTS).
+HOUSES = {
+    'siding':  dict(wall='Siding', bay='SidingBay', door='SidingDoor', garage='SidingGarage', roof='Shingles', floor=3.0),
+    'ranch':   dict(wall='Ranch', bay='RanchBay', door='RanchDoor', garage='RanchGarage', roof='Shingles', floor=3.0),
+    'mansion': dict(wall='Mansion', bay='MansionBay', door='MansionEntry', garage='MansionGarage', roof='TileRoof', floor=4.0),
+}
+HOUSE_TINTS = ('White', 'Beige', 'Sky', 'Mint', 'Peach')
+rn.COLORS.update({'Siding__%s' % t: c for t, c in TINTS.items()})
+rn.COLORS.update({'MetalPaint__Turbine': (0.96, 0.96, 0.95), 'Picket': (0.9, 0.9, 0.85), 'Siding': (0.9, 0.88, 0.84),
+                  'Mansion': (0.9, 0.84, 0.72), 'Ranch': (0.75, 0.6, 0.5), 'Shingles': (0.3, 0.28, 0.26), 'TileRoof': (0.7, 0.4, 0.25)})
+
+
+def house_walls(m, s, T, w, d, floors, plan, rnd, side_bays=0.5):
+    """Walls of a w x d box centred on the origin, front = -Y: ground-floor front bays from `plan`
+    ('door', 'bay', 'garage', 'wall'), windows on the other sides (side_bays share), upper floors all windows."""
+    H = s['floor']
+    c = [V(-w / 2, -d / 2), V(w / 2, -d / 2), V(w / 2, d / 2), V(-w / 2, d / 2)]
+    for (a, b), side in zip(zip(c, c[1:] + c[:1]), ('S', 'E', 'N', 'W')):
+        n = max(1, int(round((b - a).length / FLOOR)))
+        P = lambda k: a.lerp(b, k / n)
+        for f in range(floors):
+            for k in range(n):
+                if f == 0 and side == 'S':
+                    kind = plan[k] if k < len(plan) else 'wall'
+                else:
+                    kind = 'bay' if rnd.random() < (side_bays if f == 0 else 0.8) else 'wall'
+                if kind == 'wall':
+                    m.face([V(P(k).x, P(k).y, f * H), V(P(k + 1).x, P(k + 1).y, f * H),
+                            V(P(k + 1).x, P(k + 1).y, (f + 1) * H), V(P(k).x, P(k).y, (f + 1) * H)], T(s['wall']))
+                else:
+                    bay(m, P(k), P(k + 1), f * H, (f + 1) * H, T(s[kind]))
+    return floors * H
+
+
+def roof(m, w, d, z, mat, wall, hip=True, pitch=0.5, over=0.5, fascia=0.22):
+    """Pitched roof over a w x d footprint at height z: hip (4 slopes) or gable (ridge along x, gable walls
+    at the ends), overhanging eaves with a fascia board and a soffit underneath."""
+    x0, x1, y0, y1 = -w / 2 - over, w / 2 + over, -d / 2 - over, d / 2 + over
+    rh = (d / 2 + over) * pitch
+    E = [V(x0, y0, z), V(x1, y0, z), V(x1, y1, z), V(x0, y1, z)]   # eave corners
+    if hip:
+        k = min(d / 2 + over, w / 2 + over - 0.5)
+        R0, R1 = V(x0 + k, 0, z + rh), V(x1 - k, 0, z + rh)
+        m.face([E[0], E[1], R1, R0], mat)
+        m.face([E[2], E[3], R0, R1], mat)
+        m.face([E[1], E[2], R1], mat)
+        m.face([E[3], E[0], R0], mat)
+    else:
+        R0, R1 = V(x0, 0, z + rh), V(x1, 0, z + rh)
+        m.face([E[0], E[1], R1, R0], mat)
+        m.face([E[2], E[3], R0, R1], mat)
+        for x, sg in ((w / 2, 1), (-w / 2, -1)):   # gable walls flush with the walls, up to the rafters
+            g = [V(x, -d / 2, z), V(x, d / 2, z), V(x, 0, z + (d / 2) * pitch)]
+            m.face(g if sg > 0 else g[::-1], wall)
+    m.face([E[3], E[2], E[1], E[0]], wall)   # soffit, seen from below
+    for a, b in zip(E, E[1:] + E[:1]):      # fascia
+        m.face([b, a, a + V(0, 0, fascia), b + V(0, 0, fascia)], wall)
+
+
+def house(style, plan, d, floors, rnd, tint=None, hip=True, porch=False, wing=None):
+    """One house prefab (origin on the ground, front = -Y): walls (HOUSES family), pitched roof, optional porch
+    over the door bay, optional garage wing (bays, depth) attached at the right of the front."""
+    s = HOUSES[style]
+    T = lambda mat: '%s__%s' % (mat, tint) if tint and mat == s['wall'] else mat
+    m = Mesh('House_' + style, grime(0.75, 2.0))
+    w = FLOOR * len(plan)
+    H = house_walls(m, s, T, w, d, floors, plan, rnd)
+    roof(m, w, d, H, s['roof'], T(s['wall']), hip=hip, pitch=0.45 if style == 'ranch' else 0.55)
+    if porch and 'door' in plan:   # flat porch roof on two wooden posts in front of the door bay
+        k = plan.index('door')
+        cx = -w / 2 + FLOOR * (k + 0.5)
+        m.box(V(cx, -d / 2 - 1.2, s['floor'] - 0.3), V(1, 0), FLOOR + 0.4, 2.4, 0.2, T(s['wall']), {'top': 'Roof'})
+        for x in (cx - 1.6, cx + 1.6):
+            m.cyl(V(x, -d / 2 - 2.2, 0), V(x, -d / 2 - 2.2, s['floor'] - 0.4), 0.08, 4, 'Wood')
+        m.box(V(cx, -d / 2 - 0.5, 0.08), V(1, 0), 1.6, 1.0, 0.16, 'Concrete')   # step
+    if wing:   # garage wing: one floor, its own hip roof, front flush with the house front
+        bays, wd = wing
+        ww = FLOOR * bays
+        wm = Mesh('wing', grime(0.75, 2.0))
+        house_walls(wm, s, T, ww, wd, 1, ['garage'] * bays, rnd, side_bays=0.3)
+        roof(wm, ww, wd, s['floor'], s['roof'], T(s['wall']), hip=True, pitch=0.4)
+        stamp(m, wm, V(w / 2 + ww / 2, -d / 2 + wd / 2, 0), 0.0)
+    return m
+
+
+def picket(length, h=1.0):
+    """White picket fence along +X from the origin: one cutout card (T_Picket, 2 m per tile) on wooden posts."""
+    m = Mesh('Picket', grime(0.7, 0.6))
+    n = max(1, round(length / 2.4))
+    for i in range(n + 1):
+        x = length * i / n
+        m.box(V(x, 0, h / 2 + 0.05), V(1, 0), 0.09, 0.09, h + 0.1, 'Picket')
+    m.card(V(length / 2, 0, h / 2), V(1, 0, 0), V(0, 0, 1), length, h, 'Picket', (0, 0, length / 2, 1))
+    return m
+
+
+def wood_fence(length, h=1.8):
+    """Backyard privacy fence along +X from the origin: vertical cedar boards (T_WoodFence, 2 m per tile) on both
+    faces of a 6 cm panel, square posts every ~2.4 m."""
+    m = Mesh('WoodFence', grime(0.6, 0.8))
+    n = max(1, round(length / 2.4))
+    for i in range(n + 1):
+        m.box(V(length * i / n, 0, (h + 0.05) / 2), V(1, 0), 0.1, 0.1, h + 0.05, 'Wood')
+    for sg, r in ((-1, V(1, 0, 0)), (1, V(-1, 0, 0))):   # card faces r x up: -Y then +Y
+        m.card(V(length / 2, sg * 0.03, h / 2), r, V(0, 0, 1), length, h, 'WoodFence', (0, 0, length / 2, 1))
+    m.box(V(length / 2, 0, h + 0.02), V(1, 0), length, 0.1, 0.04, 'Wood')   # cap rail
+    return m
+
+
+def wind_turbine(h=70.0, blade=32.0):
+    """Wind turbine prefab: tapered tower + nacelle (one mesh) and a separate rotor part (3 tapered blades)
+    that Unity spins (PropPlacer: *_Rotor gets a Spin). Front = -Y (the rotor faces -Y)."""
+    m = Mesh('WindTurbine', lambda p: 0.8 + 0.2 * rn.clamp(p.z / 20))
+    mat = 'MetalPaint__Turbine'
+    m.cyl(V(0, 0, 0), V(0, 0, h), 2.2, 8, mat, r1=1.3)
+    m.box(V(0.5, 0, h + 1.5), V(1, 0), 4.0, 3.2, 3.2, mat)   # nacelle, rotor side toward -Y
+    m.cyl(V(0.5, -1.6, h + 1.5), V(0.5, -3.0, h + 1.5), 1.3, 8, mat, r1=0.9)
+    rotor = Mesh('WindTurbine_Rotor')
+    rotor.cyl(V(0, 0.4, 0), V(0, -0.8, 0), 1.0, 8, mat)   # hub
+    for k in range(3):
+        a = 2 * math.pi * k / 3
+        tip = V(math.cos(a) * blade, 0, math.sin(a) * blade)
+        rotor.cyl(V(math.cos(a) * 0.6, 0, math.sin(a) * 0.6), tip, 1.1, 4, mat, r1=0.25, rot=a)
+    m.parts = [('Rotor', rotor, V(0.5, -3.0, h + 1.5))]
+    return m
+
+
 def corner_spot(n, toward, inset=1.0):
     """Point on the corner sidewalk of junction n facing direction `toward`, `inset` m behind the curb."""
     c = max((c for c in n.corners if c.kind == 'fillet'), key=lambda c: (c.a.d + c.b.d).normalized().dot(toward))
@@ -379,7 +508,8 @@ def fence(length, h=1.9):
         x = length * i / n
         m.cyl(V(x, 0, 0), V(x, 0, h + 0.05), 0.04, 6, 'PoleMetal')
     m.cyl(V(0, 0, h), V(length, 0, h), 0.03, 4, 'PoleMetal')
-    m.card(V(length / 2, 0, h / 2), V(1, 0, 0), V(0, 0, 1), length, h, 'ChainLink', (0, 0, length / 2, h / 2))
+    # T_ChainLink's bottom pixel row is empty: start one row up so the mesh reaches the ground
+    m.card(V(length / 2, 0, h / 2), V(1, 0, 0), V(0, 0, 1), length, h, 'ChainLink', (0, 1 / 32, length / 2, h / 2 + 1 / 32))
     return m
 
 
@@ -551,7 +681,19 @@ PREFABS = {   # name -> (builder, billboard LOD)
     'Broadleaf_A': (lambda: broadleaf(random.Random(21), 8), True),
     'Broadleaf_B': (lambda: broadleaf(random.Random(22), 6.5), True),
     'Bush_A': (lambda: bush(random.Random(31), 0.8), True),
+    'WindTurbine': (wind_turbine, False),
 }
+# houses: modest bungalows (siding, tinted), ranch houses, mansions (see city_demo.DISTRICTS)
+PREFABS.update({'HouseA_%s' % t: (lambda t=t: house('siding', ['bay', 'door'], 10, 1, random.Random(41), t, hip=False, porch=True), False)
+                for t in HOUSE_TINTS})
+PREFABS.update({'HouseB_%s' % t: (lambda t=t: house('siding', ['garage', 'door', 'bay'], 10, 1, random.Random(42), t, hip=True), False)
+                for t in HOUSE_TINTS})
+PREFABS.update({
+    'RanchA': (lambda: house('ranch', ['garage', 'bay', 'door', 'bay'], 10, 1, random.Random(43), hip=True), False),
+    'RanchB': (lambda: house('ranch', ['bay', 'door', 'bay'], 12, 1, random.Random(44), hip=False, wing=(1, 7)), False),
+    'MansionA': (lambda: house('mansion', ['bay', 'door', 'bay'], 14, 2, random.Random(45), hip=True, wing=(2, 8)), False),
+    'MansionB': (lambda: house('mansion', ['bay', 'bay', 'door', 'bay'], 12, 2, random.Random(46), hip=False, wing=(2, 7)), False),
+})
 
 
 def billboard_frame(me):
@@ -560,11 +702,16 @@ def billboard_frame(me):
     return max(max(xs) - min(xs), max(ys) - min(ys), max(zs)) * 1.02, max(zs) / 2
 
 
+PREFAB_PARTS = {}   # name -> [(suffix, Mesh, offset)] child parts of the prefab (kit.wind_turbine rotor)
+
+
 def prefab_data(name):
     """Blender mesh data of a prefab's main mesh (LOD0), cached for previews."""
     me = bpy.data.meshes.get('PF_' + name)
     if me is None:
-        me = PREFABS[name][0]().data()
+        m = PREFABS[name][0]()
+        PREFAB_PARTS[name] = getattr(m, 'parts', [])
+        me = m.data()
         me.name = 'PF_' + name
     return me
 
@@ -587,6 +734,12 @@ def export_prefabs(names, impostors=True):
                 ob.parent = root
                 if ob.name not in col.objects:
                     col.objects.link(ob)
+        elif PREFAB_PARTS.get(name):   # root mesh + moving parts (turbine rotor)
+            root = bpy.data.objects.new(name, me)
+            col.objects.link(root)
+            for suffix, part, offset in PREFAB_PARTS[name]:
+                ob = part.to_object(col)
+                ob.name, ob.parent, ob.location = '%s_%s' % (name, suffix), root, offset
         else:
             col.objects.link(bpy.data.objects.new(name, me))
         rn.export_fbx(os.path.join(PROPS_DIR, name + '.fbx'), list(col.objects))

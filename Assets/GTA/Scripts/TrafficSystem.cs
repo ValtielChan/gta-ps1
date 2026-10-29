@@ -23,9 +23,12 @@ public class TrafficSystem : MonoBehaviour
     public TextAsset laneGraph;           // Assets/GTA/City/<City>_traffic.json
     public int count = 700;
     public float drawDistance = 300f, physicsDistance = 45f;
-    public float shadowDistance = 50f;   // farther cars cast no shadow (they would be drawn into the shadow map for nothing)
+    public Material blob;                 // PS1 blob shadow (BlobShadow) under the cars within blobDistance
+    public float blobDistance = 120f;
+    public Material smoke;                // M_Smoke: damaged proxies smoke (CarDamage)
     public int proxies = 14;
     [Range(0, 1)] public float parkedOccupancy = 0.7f;
+    [Range(0, 1)] public float suburbTraffic = 0.35f, suburbParked = 0.4f;   // density outside downtown (CrowdSystem.downtownHalf): moving cars per lane metre, parked occupancy
     public float parkRadius = 35f;
     public int parkedProxies = 30;
     public float crashSpeed = 2.5f;       // m/s relative speed that frees a proxy
@@ -71,6 +74,8 @@ public class TrafficSystem : MonoBehaviour
         public int[] next, prev, conflicts;
         public float[] conflictPast;          // s on the conflicting lane past which its car has cleared our path
         public int stopJunction = -1;         // junction entered at the end of this lane
+        public int cap;                       // most cars placed on it (laneSpacing, suburbTraffic)
+        public bool suburb;                   // a road lane outside downtown: unseen cars over `cap` are moved elsewhere
     }
 
     struct Car
@@ -78,6 +83,7 @@ public class TrafficSystem : MonoBehaviour
         public int lane, next, model, paint, proxy;
         public float s, speed, spin, stopped, steer;
         public byte why;                       // what limits the speed (Why[]), for the dev checks
+        public bool stopDone;                  // made its full stop at this lane's stop sign
         public float off, offTarget;           // lateral offset from the lane centre (passing a still obstacle), + = right
         public float honk;                     // time before which this car does not honk again
         public Vector3 pos, fwd;
@@ -93,6 +99,7 @@ public class TrafficSystem : MonoBehaviour
         public Rigidbody rb;
         public BoxCollider box;
         public MeshRenderer body;
+        public CarDamage damage;
         public Transform[] wheels;
         public int car = -1, model;
         public bool wreck;
@@ -115,6 +122,8 @@ public class TrafficSystem : MonoBehaviour
     const float Cell = 50f, GridMin = -1200f;
     const int Cells = 48;                   // ponytail: 2.4 km square map; make the grid follow the city bounds past that
     Matrix4x4[][] bodyMats;              // [(model * paints + paint) * 2 + casts shadow][instance]
+    Matrix4x4[] blobMats, blobLocal, blobSun;   // blob quads this frame, blob quad in car space per model, its push along the sun
+    int blobCount;
     Matrix4x4[][][] wheelMats;           // [model * 2 + casts shadow][wheel][instance]
     int[] bodyCount, wheelCount;
     readonly Plane[] planes = new Plane[6];
@@ -128,6 +137,7 @@ public class TrafficSystem : MonoBehaviour
 
     void Start()
     {
+        CarDamage.smokeMaterial = smoke;
         halfL = new float[cars.Length]; halfW = new float[cars.Length]; weight = new float[cars.Length]; parks = new bool[cars.Length];
         for (int m = 0; m < cars.Length; m++)
         {
@@ -136,23 +146,29 @@ public class TrafficSystem : MonoBehaviour
             parks[m] = cars[m].boxSize.z < 6f;
             weight[m] = cars[m].boxSize.z > 7f ? 0.15f : 1f;   // ponytail: buses by length; a per-model knob when there are trucks
         }
+        crowd = FindAnyObjectByType<CrowdSystem>();
         LoadGraph();
         var player = FindAnyObjectByType<SimpleCar>();
         if (player) playerRb = player.GetComponent<Rigidbody>();
-        crowd = FindAnyObjectByType<CrowdSystem>();
         cycle = 2 * (greenTime + yellowTime + allRed);
 
         int nb = 0;
         foreach (var c in cars) nb += c.paints;
-        bodyMats = new Matrix4x4[nb * 2][];
-        bodyCount = new int[nb * 2];
-        for (int i = 0; i < nb * 2; i++) bodyMats[i] = new Matrix4x4[MaxBatch];
-        wheelMats = new Matrix4x4[cars.Length * 2][][];
-        wheelCount = new int[cars.Length * 2];
-        for (int m = 0; m < cars.Length * 2; m++)
+        bodyMats = new Matrix4x4[nb][];
+        bodyCount = new int[nb];
+        for (int i = 0; i < nb; i++) bodyMats[i] = new Matrix4x4[MaxBatch];
+        wheelMats = new Matrix4x4[cars.Length][][];
+        wheelCount = new int[cars.Length];
+        blobLocal = new Matrix4x4[cars.Length];
+        blobSun = new Matrix4x4[cars.Length];
+        blobMats = new Matrix4x4[BlobShadow.MaxBatch];
+        for (int m = 0; m < cars.Length; m++)
         {
             wheelMats[m] = new Matrix4x4[4][];
             for (int w = 0; w < 4; w++) wheelMats[m][w] = new Matrix4x4[MaxBatch];
+            var box = cars[m].boxSize;
+            blobLocal[m] = Matrix4x4.TRS(new Vector3(cars[m].boxCenter.x, BlobShadow.Lift, cars[m].boxCenter.z), Quaternion.identity, new Vector3(box.x + 1.2f, 1, box.z + 1.0f));
+            blobSun[m] = Matrix4x4.Translate(BlobShadow.SunOffset(cars[m].boxCenter.y + box.y * 0.5f));
         }
 
         // proxies per model in proportion to its share of the traffic (at least 2), parked ones for the models that park
@@ -170,9 +186,9 @@ public class TrafficSystem : MonoBehaviour
         var spots = new List<Parked>();
         for (int k = 0; k + 4 < parkedRaw.Length; k += 5)
         {
-            if (Random.value >= parkedOccupancy) continue;
-            int m = parkModels[Random.Range(0, parkModels.Count)];
             var pos = new Vector3(parkedRaw[k], parkedRaw[k + 1], parkedRaw[k + 2]);
+            if (Random.value >= parkedOccupancy * (Downtown(pos) ? 1 : suburbParked)) continue;
+            int m = parkModels[Random.Range(0, parkModels.Count)];
             var rot = Quaternion.LookRotation(new Vector3(parkedRaw[k + 3], 0, parkedRaw[k + 4]));
             spots.Add(new Parked { pos = pos, rot = rot, m = Matrix4x4.TRS(pos, rot, Vector3.one), model = m, paint = Random.Range(0, cars[m].paints), proxy = -1 });
         }
@@ -205,7 +221,7 @@ public class TrafficSystem : MonoBehaviour
         tp.index = index;
         return new Proxy
         {
-            go = go, rb = go.GetComponent<Rigidbody>(), box = go.GetComponent<BoxCollider>(), model = model,
+            go = go, damage = go.AddComponent<CarDamage>(), rb = go.GetComponent<Rigidbody>(), box = go.GetComponent<BoxCollider>(), model = model,
             body = go.transform.Find("Body").GetComponent<MeshRenderer>(),
             wheels = new[] { go.transform.Find("Wheel0"), go.transform.Find("Wheel1"), go.transform.Find("Wheel2"), go.transform.Find("Wheel3") },
         };
@@ -282,6 +298,9 @@ public class TrafficSystem : MonoBehaviour
             lanes[i].conflicts = conf[i].ToArray();
             lanes[i].conflictPast = past[i].ToArray();
             if (lanes[i].junction >= 0 || lanes[i].length < 12) continue;
+            float fill = lanes[i].length / laneSpacing;   // suburbs: a fraction of it, rounded at random (short streets get one car or none)
+            lanes[i].suburb = !Downtown(lanes[i].pts[0]);
+            lanes[i].cap = lanes[i].suburb ? (int)(fill * suburbTraffic + Random.value) : (int)fill;
             road.Add(i);
             cum.Add(total += lanes[i].length);
         }
@@ -336,6 +355,8 @@ public class TrafficSystem : MonoBehaviour
         return new Car { model = m, paint = Random.Range(0, cars[m].paints), proxy = -1, next = -1 };
     }
 
+    bool Downtown(Vector3 p) => !crowd || crowd.Downtown(new Vector2(p.x, p.z));
+
     // a random spot on a road lane, evenly by length, away from the other cars; hidden: out of sight
     bool Place(ref Car c, bool hidden)
     {
@@ -348,7 +369,7 @@ public class TrafficSystem : MonoBehaviour
             var l = lanes[li];
             float s = Random.Range(3f, l.length - 10f);
             int n = bucketStart[li + 1] - bucketStart[li];
-            if ((n + 1) * laneSpacing > l.length) continue;   // density cap per lane
+            if (n >= l.cap) continue;   // density cap per lane
             bool free = true;
             for (int b = bucketStart[li]; b < bucketStart[li + 1] && free; b++) free = Mathf.Abs(carsSim[bucket[b]].s - s) > 14f;
             if (!free) continue;
@@ -580,7 +601,9 @@ public class TrafficSystem : MonoBehaviour
             Respawn(ref c);
             return;
         }
-        if (recycleLeft > 0 && c.proxy < 0 && (c.pos - playerPos).sqrMagnitude > recycleDistance * recycleDistance && !Seen(c.pos))
+        // too far, or one too many on a quiet suburban street (cars turning in from the busy roads)
+        if (recycleLeft > 0 && c.proxy < 0 && ((c.pos - playerPos).sqrMagnitude > recycleDistance * recycleDistance
+            || lane.suburb && bucketStart[c.lane + 1] - bucketStart[c.lane] > lane.cap) && !Seen(c.pos))
         {
             recycleLeft--;
             Respawn(ref c);
@@ -594,6 +617,7 @@ public class TrafficSystem : MonoBehaviour
             c.s -= lane.length;
             c.lane = c.next;
             c.next = Pick(c.lane);
+            c.stopDone = false;
             laneStamp[c.lane] = Time.frameCount;
             lane = lanes[c.lane];
         }
@@ -691,7 +715,8 @@ public class TrafficSystem : MonoBehaviour
         bool yields = (lane.junction >= 0 || lane.turn == 6) && nx.prev.Length > 1;
         if (nx.conflicts.Length == 0 && !yields) return false;
         stopWhy = 10;
-        if (ctl == 2 && (c.stopped < 0.4f || d > 1.5f)) return true;   // stop sign: come to a full stop at the line first
+        // stop sign: come to a full stop at the line first (remembered: creeping on afterwards resets `stopped`)
+        if (ctl == 2 && !c.stopDone) { if (c.stopped < 0.4f || d > 1.5f) return true; c.stopDone = true; }
         stopWhy = 11;
         if (c.stopped > 6f) return false;   // ponytail: patience beats gridlock
         // all-way stop: first stopped, first gone (cars still arriving on the other arms will stop too); yield and
@@ -764,6 +789,7 @@ public class TrafficSystem : MonoBehaviour
         if (c.proxy >= 0) { Detach(pool[c.proxy]); }
         var n = NewCar();
         if (Place(ref n, true)) c = n;
+        else c.stopped = 0;   // no free hidden spot around the player: a jammed car tries again in jamTime
     }
 
     // ---- physical proxies ----
@@ -828,6 +854,7 @@ public class TrafficSystem : MonoBehaviour
         // them); wrecks collide with everything
         foreach (var q in pool) if (q != p) Physics.IgnoreCollision(p.box, q.box, !q.wreck);
         p.body.sharedMaterials = car.Mats(c.paint);
+        p.damage.Repair();
         p.rb.isKinematic = false;
         p.rb.useGravity = false;
         p.rb.sleepThreshold = 0;   // driven every physics step: a sleeping body would stay behind at a green light
@@ -982,6 +1009,7 @@ public class TrafficSystem : MonoBehaviour
         ref var q = ref parked[k];
         var car = cars[q.model];
         p.body.sharedMaterials = car.Mats(q.paint);
+        p.damage.Repair();   // ponytail: a parked car's dents are lost once it goes static again (beyond 1.3 x parkRadius)
         foreach (var w in p.wheels) w.localRotation = Quaternion.identity;
         p.car = k;
         p.wreck = true;
@@ -1084,18 +1112,18 @@ public class TrafficSystem : MonoBehaviour
 
     void Draw()
     {
-        float draw2 = drawDistance * drawDistance, sh2 = shadowDistance * shadowDistance;
+        float draw2 = drawDistance * drawDistance, blob2 = blobDistance * blobDistance;
         System.Array.Clear(bodyCount, 0, bodyCount.Length);
         System.Array.Clear(wheelCount, 0, wheelCount.Length);
+        blobCount = 0;
         for (int i = 0; i < carsSim.Length; i++)
         {
             ref var c = ref carsSim[i];
             float d2 = (c.pos - camPos).sqrMagnitude;
             if (c.proxy >= 0 || d2 > draw2 || !Visible(c.pos)) continue;
-            int sh = d2 < sh2 ? 1 : 0, k = 0;
+            int k = c.paint;
             for (int j = 0; j < c.model; j++) k += cars[j].paints;
-            k = (k + c.paint) * 2 + sh;
-            int m = c.model * 2 + sh;
+            int m = c.model;
             if (bodyCount[k] == MaxBatch || wheelCount[m] == MaxBatch) continue;
             var car = cars[c.model];
             var rot = Quaternion.LookRotation(c.fwd);
@@ -1105,42 +1133,40 @@ public class TrafficSystem : MonoBehaviour
             for (int w = 0; w < 4; w++)
                 wheelMats[m][w][wheelCount[m]] = M * Matrix4x4.TRS(car.wheelPos[w], w < 2 ? Quaternion.Euler(0, c.steer, 0) * spin : spin, Vector3.one);
             wheelCount[m]++;
+            if (d2 < blob2 && blobCount < BlobShadow.MaxBatch) blobMats[blobCount++] = blobSun[m] * M * blobLocal[m];
         }
         for (int i = 0; i < parked.Length; i++)
         {
             ref var q = ref parked[i];
             float d2 = (q.pos - camPos).sqrMagnitude;
             if (q.proxy >= 0 || d2 > draw2 || !Visible(q.pos)) continue;
-            int sh = d2 < sh2 ? 1 : 0, k = q.paint;
+            int k = q.paint;
             for (int j = 0; j < q.model; j++) k += cars[j].paints;
-            k = k * 2 + sh;
-            int m = q.model * 2 + sh;
+            int m = q.model;
             if (bodyCount[k] == MaxBatch || wheelCount[m] == MaxBatch) continue;
             var car = cars[q.model];
             bodyMats[k][bodyCount[k]++] = q.m;
             for (int w = 0; w < 4; w++) wheelMats[m][w][wheelCount[m]] = q.m * Matrix4x4.Translate(car.wheelPos[w]);
             wheelCount[m]++;
+            if (d2 < blob2 && blobCount < BlobShadow.MaxBatch) blobMats[blobCount++] = blobSun[m] * q.m * blobLocal[m];
         }
+        foreach (var p in pool) if (p.go.activeSelf && !p.wreck && blobCount < BlobShadow.MaxBatch) blobMats[blobCount++] = blobSun[p.model] * p.go.transform.localToWorldMatrix * blobLocal[p.model];
+        foreach (var p in parkPool) if (p.go.activeSelf && blobCount < BlobShadow.MaxBatch) blobMats[blobCount++] = blobSun[p.model] * p.go.transform.localToWorldMatrix * blobLocal[p.model];
         int b = 0;
         for (int m = 0; m < cars.Length; m++)
         {
             var car = cars[m];
             for (int p = 0; p < car.paints; p++, b++)
-                for (int sh = 0; sh < 2; sh++)
-                {
-                    int k = b * 2 + sh;
-                    if (bodyCount[k] == 0) continue;
-                    for (int s = 0; s < car.subMeshes; s++)
-                        Graphics.DrawMeshInstanced(car.body, s, car.Mat(p, s), bodyMats[k], bodyCount[k], null, sh == 1 ? ShadowCastingMode.On : ShadowCastingMode.Off, true, gameObject.layer);
-                }
-            for (int sh = 0; sh < 2; sh++)
             {
-                int k = m * 2 + sh;
-                if (wheelCount[k] == 0) continue;
-                for (int w = 0; w < 4; w++)
-                    Graphics.DrawMeshInstanced(car.wheels[w], 0, car.wheelMaterial, wheelMats[k][w], wheelCount[k], null, sh == 1 ? ShadowCastingMode.On : ShadowCastingMode.Off, true, gameObject.layer);
+                if (bodyCount[b] == 0) continue;
+                for (int s = 0; s < car.subMeshes; s++)
+                    Graphics.DrawMeshInstanced(car.body, s, car.Mat(p, s), bodyMats[b], bodyCount[b], null, ShadowCastingMode.Off, true, gameObject.layer);
             }
+            if (wheelCount[m] == 0) continue;
+            for (int w = 0; w < 4; w++)
+                Graphics.DrawMeshInstanced(car.wheels[w], 0, car.wheelMaterial, wheelMats[m][w], wheelCount[m], null, ShadowCastingMode.Off, true, gameObject.layer);
         }
+        BlobShadow.Draw(blob, BlobShadow.Rect, blobMats, blobCount);
     }
 
     public int Count => carsSim?.Length ?? 0;
@@ -1250,6 +1276,12 @@ public class TrafficSystem : MonoBehaviour
             n++;
             string ctl = lane.stopJunction >= 0 ? control[lane.stopJunction].ToString() : "-";
             string nx = c.next >= 0 ? $"next {c.next} (j{lanes[c.next].junction} t{lanes[c.next].turn} prev{lanes[c.next].prev.Length} conf{lanes[c.next].conflicts.Length})" : "no next";
+            if (c.next >= 0 && lanes[c.next].next.Length > 0)   // the lane after the junction (RoomAfter): cars on it / in its feeding connectors
+            {
+                int ex = lanes[c.next].next[0], feed = 0;
+                foreach (int p in lanes[ex].prev) if (lanes[p].junction >= 0) feed += bucketStart[p + 1] - bucketStart[p];
+                nx += $" exit {ex} {lanes[ex].length:0} m cars {bucketStart[ex + 1] - bucketStart[ex]} + {feed} feeding";
+            }
             sb.AppendLine($"car {i} [{Why[c.why]}] stopped {c.stopped:0}s at {c.pos} lane {c.lane} (j{lane.junction} t{lane.turn}) s {c.s:0}/{lane.length:0} stopAt {lane.stopAt:0} ctl {ctl} {nx} gap {gap:0.0} mustStop {(c.next >= 0 && MustStop(ref c, lane, gap, va))}");
         }
         return sb.ToString();

@@ -161,6 +161,27 @@ static class TrafficBuild
         return prefab;
     }
 
+    // damaged cars' smoke puffs (CarDamage): alpha-blended unlit particles, T_Smoke (Tools/texture/smoke.py)
+    static Material SmokeMaterial()
+    {
+        const string path = "Assets/GTA/Materials/M_Smoke.mat";
+        var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (!m) { m = new Material(Shader.Find("Universal Render Pipeline/Particles/Unlit")); AssetDatabase.CreateAsset(m, path); }
+        m.SetTexture("_BaseMap", AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/GTA/Textures/T_Smoke.png"));
+        m.SetColor("_BaseColor", Color.white);
+        m.SetFloat("_Surface", 1);   // transparent, alpha blend
+        m.SetFloat("_Blend", 0);
+        m.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        m.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        m.SetFloat("_ZWrite", 0);
+        m.SetOverrideTag("RenderType", "Transparent");
+        m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        EditorUtility.SetDirty(m);
+        AssetDatabase.SaveAssets();
+        return m;
+    }
+
     [MenuItem("GTA/Setup Traffic In Open Scene")]
     public static void Setup()
     {
@@ -170,6 +191,8 @@ static class TrafficBuild
         var traffic = new GameObject("Traffic").AddComponent<TrafficSystem>();
         traffic.cars = AssetDatabase.FindAssets("t:TrafficCar", new[] { Dir }).Select(g => AssetDatabase.LoadAssetAtPath<TrafficCar>(AssetDatabase.GUIDToAssetPath(g))).ToArray();
         traffic.laneGraph = AssetDatabase.LoadAssetAtPath<TextAsset>("Assets/GTA/City/" + scene.name + "_traffic.json");   // city_demo.export_traffic
+        traffic.blob = LightingBake.Blob();
+        traffic.smoke = SmokeMaterial();
         EditorSceneManager.MarkSceneDirty(scene);
         EditorSceneManager.SaveScene(scene);
         Debug.Log($"traffic: {traffic.cars.Length} car models, graph {(traffic.laneGraph ? "ok" : "MISSING")}");

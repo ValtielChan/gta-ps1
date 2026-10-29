@@ -8,7 +8,7 @@ using UnityEngine.Rendering;
 // per pedestrian).
 // - Pedestrians are plain structs simulated here and drawn with GPU instancing (GTA/PS1Crowd: vertex animation
 //   texture + outfit Texture2DArray, see CrowdCharacter), up to drawDistance, frustum culled; only those within
-//   shadowDistance cast shadows.
+//   blobDistance get a blob shadow (BlobShadow).
 // - Everywhere in the city: `walkers` spread over the pedestrian graph exported by the road generator
 //   (<City>_peds.json: middle line of every sidewalk, junction corners, crosswalks). They walk along it keeping to
 //   their right (`lane`), pick a way at each junction, cross at the crosswalks now and then (crossChance), stop for a
@@ -18,9 +18,9 @@ using UnityEngine.Rendering;
 // - Physical existence: a pedestrian touched by the car (SimpleCar box) above minHitSpeed, or by a flying body,
 //   is swapped on the spot for a pooled ragdoll (skinned model + rigidbodies) posed on the same animation frame
 //   and thrown with the impact velocity; a new walker appears somewhere out of sight.
-public class CrowdSystem : MonoBehaviour
+public partial class CrowdSystem : MonoBehaviour
 {
-    public enum Clip { Idle, Walk, Sit, SitTalk, Talk }   // VAT clips, order of NpcPrefabs.Clips
+    public enum Clip { Idle, Walk, Sit, SitTalk, Talk, Sign, Guard, Strike, Throw, Cower, Fall, Stagger }   // VAT clips, order of NpcPrefabs.Clips
 
     [System.Serializable]
     public struct Spot { public Vector3 pos; public float yaw; public bool seat; }   // bench seat, or standing spot at a bus stop
@@ -29,11 +29,14 @@ public class CrowdSystem : MonoBehaviour
     public TextAsset walkMap;     // sidewalk bitmap (GTA > Setup Crowd In Open Scene): where groups can stand
     public TextAsset pedGraph;    // Assets/GTA/City/<City>_peds.json (Tools/citygen: city_demo.export_peds)
     public Spot[] spots;
-    public int walkers = 2000;
+    public int walkers = 2300;   // ~2000 downtown (20 km of sidewalks), ~300 in the suburbs (20 km at suburbDensity)
+    [Range(0, 1)] public float suburbDensity = 0.15f;              // walkers per metre of sidewalk outside downtown
+    public Vector2 downtownHalf = new Vector2(560, 480);           // downtown: |x|, |z| inside the ring highway
     public int talkingGroups = 160;
     [Range(0, 1)] public float crossChance = 0.3f;   // at a crosswalk, share of pedestrians who cross
     [Range(0, 1)] public float seatOccupancy = 0.6f, standOccupancy = 0.5f;
-    public float drawDistance = 250f, fullSimDistance = 120f, shadowDistance = 30f;
+    public float drawDistance = 250f, fullSimDistance = 120f, blobDistance = 80f;
+    public Material blob;   // PS1 blob shadow (BlobShadow) under the pedestrians within blobDistance
     public float walkSpeed = 1.35f;          // m/s, matches the walk clip
     public float minHitSpeed = 3f;           // m/s
     public int ragdollsPerCharacter = 8;
@@ -51,6 +54,14 @@ public class CrowdSystem : MonoBehaviour
         public int ch, skin, from, to;  // walkers: graph link being walked
         public Clip clip;
         public bool still, crossing;    // still: seated / waiting / chatting, never walks
+        // events (CrowdEvents.cs)
+        public Role role;
+        public int hp, link, evt;       // link: a beater's victim
+        public Vector2 home;
+        public float homeYaw, homeY, hitAt, bodyTime, wanderT;
+        public Vector2 wander;          // protesters: drift around home
+        public bool dead, down, thrown, moving; // dead: waits to come back at home; down: a ragdoll that will get up
+        public Body body;
     }
 
     [System.Serializable] class Graph { public float[] points; public int[] links; }
@@ -76,6 +87,8 @@ public class CrowdSystem : MonoBehaviour
     int w, h;
     byte[] bits;
     Matrix4x4[][] mats;
+    Matrix4x4[] blobMats;
+    int blobCount;
     Vector4[][] data;
     int[] batch;
     MaterialPropertyBlock mpb;
@@ -107,8 +120,9 @@ public class CrowdSystem : MonoBehaviour
         System.Buffer.BlockCopy(b, 24, bits, 0, bits.Length);
         LoadGraph();
 
-        int k = characters.Length * 2;
+        int k = characters.Length;
         mats = new Matrix4x4[k][];
+        blobMats = new Matrix4x4[BlobShadow.MaxBatch];
         data = new Vector4[k][];
         batch = new int[k];
         for (int i = 0; i < k; i++) { mats[i] = new Matrix4x4[MaxBatch]; data[i] = new Vector4[MaxBatch]; }
@@ -141,6 +155,7 @@ public class CrowdSystem : MonoBehaviour
             }
         }
         if (bloodStain && bloodSpray) gameObject.AddComponent<BloodFX>().Init(bloodStain, bloodSpray);
+        InitEvents();
         Populate();
     }
 
@@ -168,7 +183,9 @@ public class CrowdSystem : MonoBehaviour
             adj[fill[c]] = a; adjCross[fill[c]++] = x;
             linkA[k] = a;
             linkB[k] = c;
-            linkCum[k] = total += (gp[c] - gp[a]).magnitude;
+            var mid = (gp[a] + gp[c]) * 0.5f;
+            float w = Downtown(mid) ? 1f : suburbDensity;
+            linkCum[k] = total += (gp[c] - gp[a]).magnitude * w;
         }
     }
 
@@ -177,6 +194,7 @@ public class CrowdSystem : MonoBehaviour
         UpdateCar();   // nobody spawns inside the car
         camPos = Camera.main.transform.position;
         var list = new List<Ped>();
+        if (crsChar >= 0 && signChars.Length > 0) AddProtests(list);
         // seated on benches / bus stop seats, waiting at bus stops
         if (spots != null)
             foreach (var s in spots)
@@ -186,7 +204,7 @@ public class CrowdSystem : MonoBehaviour
         // small groups chatting where the sidewalk is wide; their cells leave the bitmap so walkers go around them
         for (int g = 0, tries = 0; g < talkingGroups && tries < talkingGroups * 50; tries++)
         {
-            if (!RandomCell(out var c) || !Roomy(c)) continue;
+            if (!RandomCell(out var c) || !Roomy(c) || NearProtest(c)) continue;
             int n = Random.value < 0.3f ? 3 : 2;
             float a0 = Random.value * Mathf.PI * 2, r = n == 2 ? 0.55f : 0.65f;
             for (int m = 0; m < n; m++)
@@ -206,7 +224,7 @@ public class CrowdSystem : MonoBehaviour
 
     Ped NewPed(Vector2 pos, float y, float yaw, Clip clip, bool still)
     {
-        int ch = Random.Range(0, characters.Length);
+        int ch = walkerChars[Random.Range(0, walkerChars.Length)];
         return new Ped
         {
             pos = pos, y = y, yaw = yaw, clip = clip, still = still,
@@ -226,31 +244,46 @@ public class CrowdSystem : MonoBehaviour
         GeometryUtility.CalculateFrustumPlanes(cam, planes);
         UpdateCar();
         UpdateBodies();
+        UpdatePaves(dt);
         float near2 = fullSimDistance * fullSimDistance;
         int frame = Time.frameCount;
         Crossing.Clear();
+        Down = Dead = 0;
         for (int i = 0; i < peds.Length; i++)
         {
             ref var p = ref peds[i];
-            p.anim += p.clip == Clip.Walk ? dt * p.speed / walkSpeed : dt;
-            if (p.crossing && !p.still) Crossing.Add(p.pos);
-            if (!p.still)
+            if (p.role != Role.None)
             {
-                if ((p.pos - center).sqrMagnitude < near2) Step(ref p, dt);
-                else if (((i + frame) & 3) == 0) Step(ref p, dt * 4);   // far away: a quarter of them per frame
+                if (!EventStep(ref p, dt)) continue;   // dead, or a ragdoll for now
+                if (p.y < groundY - 0.05f) Crossing.Add(p.pos);   // standing on the roadway: the traffic stops
+            }
+            else
+            {
+                p.anim += p.clip == Clip.Walk ? dt * p.speed / walkSpeed : dt;
+                if (p.crossing && !p.still) Crossing.Add(p.pos);
+                if (!p.still)
+                {
+                    if ((p.pos - center).sqrMagnitude < near2) Step(ref p, dt);
+                    else if (((i + frame) & 3) == 0) Step(ref p, dt * 4);   // far away: a quarter of them per frame
+                }
             }
             if (Hit(ref p, out var v))
             {
-                Kill(ref p, v);
-                var w = NewPed(default, groundY, 0, Clip.Walk, false);
-                if (PlaceWalker(ref w, true)) p = w;
+                if (p.role != Role.None) EventHit(ref p, v);
+                else
+                {
+                    Kill(ref p, v);
+                    var w = NewPed(default, groundY, 0, Clip.Walk, false);
+                    if (PlaceWalker(ref w, true)) p = w;
+                }
             }
-            else if (!p.still && InCar(p.pos, 0.05f)) PushOut(ref p);
+            else if ((!p.still || p.role != Role.None) && InCar(p.pos, 0.05f)) PushOut(ref p);
         }
         Draw();
     }
 
     public int Count => peds?.Length ?? 0;
+    public bool Downtown(Vector2 p) => Mathf.Abs(p.x) < downtownHalf.x && Mathf.Abs(p.y) < downtownHalf.y;
 
     public Vector3 Feet(int i, out float yawDeg)
     {
@@ -435,7 +468,7 @@ public class CrowdSystem : MonoBehaviour
         return false;
     }
 
-    void Kill(ref Ped p, Vector3 v)
+    Body Kill(ref Ped p, Vector3 v)
     {
         var ch = characters[p.ch];
         var pool = pools[p.ch];
@@ -481,6 +514,7 @@ public class CrowdSystem : MonoBehaviour
         b.pooled = false;
         if (BloodFX.I) BloodFX.I.Hit(new Vector3(p.pos.x, p.y + 0.9f, p.pos.y), v);
         Sounds(ref p, v);
+        return b;
     }
 
     // the hit (body against the car, a wet crunch when fast), the victim's scream, bystanders shouting, and a crowd
@@ -539,16 +573,18 @@ public class CrowdSystem : MonoBehaviour
 
     void Draw()
     {
-        float sh2 = shadowDistance * shadowDistance, draw2 = drawDistance * drawDistance;
+        float draw2 = drawDistance * drawDistance, blob2 = blobDistance * blobDistance;
         System.Array.Clear(batch, 0, batch.Length);
+        blobCount = 0;
         for (int i = 0; i < peds.Length; i++)
         {
             ref var p = ref peds[i];
+            if (p.dead || p.down) continue;
             float dx = p.pos.x - camPos.x, dz = p.pos.y - camPos.z, d2 = dx * dx + dz * dz;
             if (d2 > draw2) continue;
             var feet = new Vector3(p.pos.x, p.y, p.pos.y);
             if (!Visible(feet)) continue;
-            int k = p.ch * 2 + (d2 < sh2 ? 1 : 0);
+            int k = p.ch;
             int n = batch[k];
             if (n == MaxBatch) continue;   // ponytail: one draw per batch caps a batch at 1023 visible, split if that is ever reached
             var ch = characters[p.ch];
@@ -557,14 +593,17 @@ public class CrowdSystem : MonoBehaviour
             mats[k][n] = Matrix4x4.TRS(feet, Quaternion.Euler(0, p.yaw * Mathf.Rad2Deg, 0), Vector3.one);
             data[k][n] = new Vector4(p.skin, row, 0, 0);
             batch[k] = n + 1;
+            if (d2 < blob2 && blobCount < BlobShadow.MaxBatch)
+                blobMats[blobCount++] = Matrix4x4.TRS(feet + new Vector3(0, BlobShadow.Lift, 0) + BlobShadow.SunOffset(0.9f), Quaternion.identity, new Vector3(0.9f, 1, 0.9f));
         }
         for (int k = 0; k < batch.Length; k++)
         {
             if (batch[k] == 0) continue;
-            var ch = characters[k / 2];
+            var ch = characters[k];
             mpb.SetVectorArray("_Crowd", data[k]);
-            Graphics.DrawMeshInstanced(ch.mesh, 0, ch.material, mats[k], batch[k], mpb,
-                k % 2 == 1 ? ShadowCastingMode.On : ShadowCastingMode.Off, true, gameObject.layer);
+            Graphics.DrawMeshInstanced(ch.mesh, 0, ch.material, mats[k], batch[k], mpb, ShadowCastingMode.Off, true, gameObject.layer);
         }
+        BlobShadow.Draw(blob, BlobShadow.Disc, blobMats, blobCount);
+        DrawPaves();
     }
 }

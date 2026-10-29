@@ -107,6 +107,22 @@ MarkWhite/MarkYellow (flat paint), `MetalPaint__Pole`, `MetalPaint__Signal`, Sto
 
 ## Known limits / next steps
 
-- One mesh per category (Roads, Markings, Props, Buildings, Lots, Ground); split into tiles when the map grows.
+- Scene meshes are tiled: `Mesh.tiles(size)` splits a category by 128 m cells (`Roads_<i>_<j>`, `RoadsV_`
+  vertical parts, `RoadsDeck_`, `Markings_`, `Lots_`, `Drives_`, `Fences_`, `Hedges_`, `Wires_`, `Ground_` 512 m).
+  The flat layers (`ImportRules.Planar`) get a top-down lightmap chart in Unity, so keep road / lot / marking tops
+  in those layers and anything vertical in `RoadsV` (`city_demo.road_layer`).
+- Residential districts (`city_demo.DISTRICTS`, one per rural-loop side): streets leave the loop every 120-200 m
+  (`residential()` profile: 3.2 lane + 2.2 parking + 2 m sidewalk, no centre line, 4-way stops), cross streets at
+  `rows`; `net.blocks` -> `houses()` cuts each block into lots along its two cross-street sides, back to back
+  (blocks along the rural loop, which has no sidewalk: one row facing the inner street, backing onto the loop behind
+  a fence and a row of trees). Per lot: house prefab centred on its lot (footprint incl. garage wing / side driveway
+  in `HOUSE_PLANS`, keep in sync with `kit.PREFABS`), concrete driveway and walkway, foundation shrubs, front and
+  back trees. Every yard is closed (`boundary()`, kinds picket / hedge / tallhedge / wood / chain per district
+  `front` / `back`): along the sidewalk with gaps at the driveway and the walkway, low between front yards, fences
+  or tall hedges between back yards and along the lot backs. Boundaries sit 1 m inside the sidewalk and are clipped
+  to the block outline (`clip`, rounded corners); block edges are measured where the middle lines cross the outline
+  (the corner sidewalks stick out past the straight edges along the loop).
+- Terrain: `height(x, y)` is flat inside `FLAT` and rises into noise hills beyond (smooth-shaded `Ground` tiles with
+  exact normals); `turbines()` puts wind turbines on crests 1.05-1.7 km out. Keep roads inside `FLAT`.
 - Traffic lights are static meshes (no light cycle yet). No dead-end caps / cul-de-sacs, no diagonal streets yet
   (the junction math supports any angle; very acute angles produce long setbacks).

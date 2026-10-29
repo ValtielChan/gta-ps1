@@ -28,7 +28,7 @@ description: Create PS1-style pedestrians (NPC) for the GTA PS1 project from Fab
 | `Assets/GTA/Editor/ImportRules.cs` (`IsNpc`) | Humanoid, avatar from model, bakeAxisConversion, clip renaming `Rig|Walk_Loop` → `Walk_Loop`, loop flags |
 | `Assets/GTA/Editor/NpcPrefabs.cs` | Menus **GTA > Build NPC Crowd** and **GTA > Setup Crowd In Open Scene** |
 | `Assets/GTA/Scripts/CrowdSystem.cs`, `CrowdCharacter.cs` | The crowd: simulation, instanced drawing, impacts, ragdoll pool |
-| `Assets/GTA/Shaders/PS1Crowd.shader` | PS1Lit lighting + VAT vertex fetch + outfit array, instanced (Forward, ShadowCaster, DepthOnly) |
+| `Assets/GTA/Shaders/PS1Crowd.shader` | PS1Lit lighting + VAT vertex fetch + outfit array, instanced (Forward without shadows, DepthOnly) |
 | `Assets/GTA/Prefabs/NPC/<name>_Ragdoll.prefab` | Skinned model + Animator (posing only) + 11 rigidbodies / CharacterJoints, layer Ignore Raycast |
 
 Naming contract: skins of `<name>.fbx` are every `Assets/GTA/Textures/T_<name>.png` / `T_<name>_<Variant>.png`,
@@ -134,7 +134,8 @@ Animator per pedestrian costs too much past a few dozens. So pedestrians are **n
 
 - **Population of the whole city** (`CrowdSystem`, plain structs: position, heading, timers, outfit, clip, graph
   link). Fabien wants people everywhere, orderly (no "chaos"), crossing at crosswalks:
-  - `walkers` (2000) spread evenly along the **pedestrian graph** `Assets/GTA/City/<City>_peds.json` exported by
+  - `walkers` (2600: ~2000 downtown, ~600 in the suburbs, `suburbDensity` 0.3 per metre outside `downtownHalf`)
+    spread along the **pedestrian graph** `Assets/GTA/City/<City>_peds.json` exported by
     the road generator (sidewalk middle lines ~21 km, corners, 184 crosswalks). Each one walks the graph keeping
     `lane` (0.25–0.9 m) to its right, so the two directions pass each other; at a graph point it carries on, turns
     the corner or crosses (`crossChance` 0.3), never goes back except at a dead end; 15 % chance every 8–20 s to
@@ -145,8 +146,8 @@ Animator per pedestrian costs too much past a few dozens. So pedestrians are **n
     around within 1.6 m (in practice the paved lots between buildings).
   - LOD: beyond `fullSimDistance` (120 m) a quarter of the walkers is stepped per frame (dt × 4). A killed
     pedestrian comes back as a walker somewhere out of sight (> 60 m and out of view, or beyond drawDistance).
-- **Drawing**: `Graphics.DrawMeshInstanced` per body and per shadow class (≤ 4 draws): distance (`drawDistance`
-  250 m, fog ends at 520) and CPU frustum culling, the ones within `shadowDistance` (30 m) cast shadows. Per instance `_Crowd` = (outfit slice, VAT row). The shader
+- **Drawing**: `Graphics.DrawMeshInstanced` per body (2 draws): distance (`drawDistance`
+  250 m, fog ends at 520) and CPU frustum culling, the ones within `blobDistance` (80 m) get a blob shadow (`BlobShadow`, `M_Blob`). Per instance `_Crowd` = (outfit slice, VAT row). The shader
   texel-fetches the vertex position / normal (vertex index in uv1.x) and samples the outfit array.
 - **Physics on demand**: a pedestrian inside the car's BoxCollider footprint (grown by the distance covered this
   frame) above `minHitSpeed` (3 m/s) is swapped for a pooled ragdoll (`ragdollsPerCharacter` = 8, oldest reused,
@@ -176,6 +177,43 @@ Steps:
    After editing C# from outside, `AssetDatabase.ImportAsset(<script>, ForceUpdate)` triggers the compile; compile
    errors only show in the editor log (`-logFile`), not always in ReadConsole. Never leave an
    `Application.logMessageReceived` handler capturing `result`: every later command then fails.
+
+## E. Event characters and protests (riot police, protesters)
+
+- **Kits** (`NpcPrefabs.Kits`): a body FBX + gear meshes glued to its bones. `crs` = hero + Helmet (Head, A-pose),
+  Shield (LeftLowerArm), Baton (RightHand); `demo` / `demo_f` = hero / hero_f + Sign (LeftHand). Each gear is placed in
+  **root space on the first frame of a clip** (`Gear.pose`: Guard for the police, Sign for the protesters; offset from
+  the bone + rotation) and skinned rigidly to the bone through the inverse skinning matrix of that pose (`Equip`), so
+  it follows the bone in every clip. The equipped mesh is `Crowd/<kit>_Skinned.asset` (VAT + ragdoll use it).
+  Kits bake only `Kit.clips` (the others get 1 frame) and are `eventOnly` (never walkers).
+- **Gear meshes**: `Tools/citygen/gear.py` (Blender, `gear.export()` → `Assets/GTA/NPC/Gear/Gear.fbx`: Shield,
+  Helmet, Baton, Sign double-sided, Pave = the thrown stone). ImportRules: `NPC/Gear/` is not Humanoid.
+- **Atlases 512 × 256**: body atlas on the left (body UVs × 0.5), gear on the right (`gear.REGIONS` =
+  `gear_atlas.GEAR`). `python -I Tools/texture/gear_atlas.py <raw>` makes `T_crs.png` (uniform = AI edits of torso /
+  arms / legs of the hero atlas + black gloves / boots, shield / helmet / visor / baton) and `T_demo_NN` /
+  `T_demo_f_NN` (sign NN on an existing pedestrian outfit). Sources (scratchpad `raw_demo/`, session 2026-10-29):
+  3 sheets of 4 cardboard signs (gpt-image, 12 silly French slogans), shield photo, 3 × 2 material swatches.
+  New slogans: one more `signsN.png` sheet (2 × 2, grey floor), rerun gear_atlas, Build NPC Crowd.
+- **Clips (UAL stand-ins)**: Sign = Idle_Torch_Loop, Guard = Sword_Idle, Strike = Sword_Attack, Throw =
+  Spell_Simple_Shoot, Cower = Crouch_Idle_Loop, Fall = Death01 (played backwards to get up), Stagger = Hit_Chest.
+  Better ones need Mixamo (Fabien logs in): overhand throw, downward baton strike, lying covering the head, angry chant.
+- **Runtime** (`Scripts/CrowdEvents.cs`, partial of CrowdSystem): at start, `protests` (10) sites = fully paved
+  16 × 24 m rectangles of the sidewalk bitmap (the empty paved block lots), ≥ `protestSpacing` (230 m) apart. Per protest:
+  `police` (60) riot police in rows of 26, 2–4 beatings in front of the line (victim Cower + 2–3 Strike), `protesters`
+  (280) placed by a fill over the ground (sidewalk bitmap, else a ray at road height away from parked cars) from the
+  middle of the front, nearest first: a packed mass across the width that pours into the streets it touches. They surge
+  toward the police and back and drift around their place (`Mill`); those on the roadway go into `Crossing` (traffic
+  stops). Values are serialized on the scene's Crowd object. Protesters
+  (signs, shouting, throwers launching paving stones at the police, at the car when it comes within 25 m), one 3D
+  chant loop. Police resist: below `crsStaggerSpeed` (8 m/s) a hit staggers them (hp 3, car slowed 20 %); a harder
+  hit ragdolls them and they get up from the ragdoll (lieHips / lieHead of the fall clip align the pose) and walk back,
+  above `crsKillSpeed` (20 m/s) or out of hp they die. Dead event people come back at their place out of sight after
+  25 s. Sounds: Baton / Armor / Rock one-shots, Protest loop (GameAudio, AudioSetup).
+- Test without the editor (2026-10-29): Unity batchmode `-executeMethod` + an `[InitializeOnLoad]` class that enters
+  Play mode and ticks from `EditorApplication.update` (SessionState flag), renders `Camera.main` into PNGs
+  (`CrowdSystem.ProtestCenter(i)`, `Down` / `Dead` counters). Skinned previews in batchmode: `BakeMesh` + a MeshRenderer
+  (the SkinnedMeshRenderer is not re-skinned without the player loop), with the renderer's scale.
+- `Save()` in NpcPrefabs recreates mesh assets (CopySerialized keeps a mesh's old vertex data).
 
 ## Known limits / next
 

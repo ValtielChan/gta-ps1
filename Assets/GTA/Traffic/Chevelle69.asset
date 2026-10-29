@@ -1,0 +1,42 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 146eb5f63af43e243a803dfeb2b269e9, type: 3}
+  m_Name: Chevelle69
+  m_EditorClassIdentifier: 
+  body: {fileID: 4300000, guid: 2842ee3747cb206459d91a2f886de4ee, type: 2}
+  wheels:
+  - {fileID: 4300000, guid: 829ef6acb3a22c142ad993f2c9212533, type: 2}
+  - {fileID: 4300000, guid: df0280d8cca0a954ebfac86dbc22e547, type: 2}
+  - {fileID: 4300000, guid: 8ea66b733aaf2d446809ba109d7a91ac, type: 2}
+  - {fileID: 4300000, guid: f633f655f7fec1b46aeb3d8557def07a, type: 2}
+  wheelPos:
+  - {x: -0.81286836, y: 0.34, z: 1.7773007}
+  - {x: 0.81286836, y: 0.34, z: 1.7773007}
+  - {x: -0.8170221, y: 0.34, z: -1.2975558}
+  - {x: 0.8170221, y: 0.34, z: -1.2975558}
+  wheelRadius: 0.34
+  wheelBase: 3.0748565
+  boxCenter: {x: 0.000000059604645, y: 0.9, z: -0.0027062893}
+  boxSize: {x: 1.9247798, y: 0.92, z: 5.2323475}
+  paints: 8
+  subMeshes: 1
+  materials:
+  - {fileID: 2100000, guid: 485543f01812fc7449b23855cf4294d4, type: 2}
+  - {fileID: 2100000, guid: 5eb033866bc2b164495872a9c726836b, type: 2}
+  - {fileID: 2100000, guid: 5091dd43f4a68eb43b6c6da45cb4eb16, type: 2}
+  - {fileID: 2100000, guid: 1ca6d37b32d42174dac2fece43a5c916, type: 2}
+  - {fileID: 2100000, guid: bad59ef26aaae9446b87789e4026fdf8, type: 2}
+  - {fileID: 2100000, guid: 35ca4d41eb4f2d744b8c0c6c0e48e5e7, type: 2}
+  - {fileID: 2100000, guid: d6564f6321e484b4d917b1285ee35b69, type: 2}
+  - {fileID: 2100000, guid: 5ff6e09dcafbfb340a39d78eeb202484, type: 2}
+  wheelMaterial: {fileID: 2100000, guid: 485543f01812fc7449b23855cf4294d4, type: 2}
+  proxy: {fileID: 2422347542898677780, guid: 1b7b1988952873d41b22df7b20bf1690, type: 3}

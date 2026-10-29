@@ -28,6 +28,10 @@ static class AudioSetup
         a.bodyHit = Set("BodyHit"); a.splat = Set("Splat"); a.bodyLand = Set("BodyLand");
         a.screamMale = Set("ScreamM"); a.screamFemale = Set("ScreamF"); a.shout = Set("Shout"); a.panic = Set("Panic");
         a.horn = Set("Horn");
+        a.baton = Set("Baton"); a.armor = Set("Armor"); a.rock = Set("Rock");
+        a.protest = Set("Protest").FirstOrDefault();
+        var crowd = Object.FindAnyObjectByType<CrowdSystem>();
+        if (crowd) { crowd.protestLoop = a.protest; EditorUtility.SetDirty(crowd); }
         a.ambience = Set("Ambience").FirstOrDefault();
 
         var skid = Set("Skid").FirstOrDefault();
@@ -57,6 +61,7 @@ static class AudioSetup
         EditorSceneManager.SaveScene(scene);
         Debug.Log($"audio: crash {a.crash.Length}, bump {a.bump.Length}, pole {a.pole.Length}, body {a.bodyHit.Length}/{a.splat.Length}/{a.bodyLand.Length}, " +
                   $"screams {a.screamMale.Length}/{a.screamFemale.Length}, shouts {a.shout.Length}, panic {a.panic.Length}, horns {a.horn.Length}, " +
+                  $"protest baton {a.baton.Length} armor {a.armor.Length} rock {a.rock.Length} loop {(a.protest ? a.protest.name : "none")}, " +
                   $"ambience {(a.ambience ? a.ambience.name : "none")}, skid {(skid ? skid.name : "none")}, player engine {loops.Count(c => c)}/5, " +
                   $"traffic engines {(traffic ? traffic.engineLoops.Length : 0)}");
     }

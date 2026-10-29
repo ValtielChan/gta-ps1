@@ -67,7 +67,7 @@ python -I Tools/texture/ps1ify.py <name>.b64.txt Assets/GTA/Textures/T_<Name>.pn
 
 | Group | Textures |
 |---|---|
-| Ground | Asphalt, Sidewalk (3x3 slabs), Grass (dry), Dirt (mulch), Concrete (also curbs via `Concrete__Curb`), Roof |
+| Ground | Asphalt, Sidewalk (3x3 slabs), Grass (dry), Dirt (mulch), Concrete (also curbs via `Concrete__Curb`), Roof, Shingles, TileRoof (roofs) |
 | Facade families (4 m bay = 1 floor, converted by `Tools/texture/facades.py`) | red brick: BrickBay, Brick, BrickGround, BrickEntry, BrickService · buff brick: BrickBayB, BrickB, BrickBService · white stucco (tintable): AptBay, Stucco, StuccoBay, SpanishBay, AptEntry, AptGround, StuccoService · granite: OfficeGround, OfficeLobby, GraniteService, GraniteGarage · deco: DecoBay, DecoEntry, DecoWall · OfficeBay, ConcreteBay, GlassBay |
 | Storefronts (4 m) | Shopfront (`--crop 0 0 1 0.875`), ShopDonuts, ShopLaundry, ShopLiquor, ShopTacos, ShopPharmacy, ShopBarber, ShopPawn, ShopNails, ShopPizza, ShopPhone, ShopBurger, ShopCafe, ShopMercado, ShopVideo, ShopChinese, ShopCheck · 8 m × 4 m (`--crop 0 0 1 1 --width 128`): ShopMarket, ShopBank |
 | Fabrics / roof | AwningStripes (red/white), AwningGreen, AwningBlue, Awning (neutral, `__Green`/`__Blue`/`__Wine`), ACUnit (32), WaterTank |
@@ -75,6 +75,7 @@ python -I Tools/texture/ps1ify.py <name>.b64.txt Assets/GTA/Textures/T_<Name>.pn
 | Props (fitted photos) | Bench (64, `--trim`), Mailbox (32, `--trim`) + MailboxSide, NewsBoxFront (32) + NewsBoxSide, ParkingMeter (32), TrashCan (32, unrolled side, `wrap=True`), BusStopAd (32), BusStopGlass, SignalHead (32, `--trim`), LampLens (32, `--trim`, arm end at the bottom) |
 | Signs | StopSign (32), YieldSign (32, `--trim`), StreetSign (atlas of 4 rows), ExitSign (128, `--trim`) |
 | Vegetation (alpha) | LeafCard, PalmFrond (fan, stem at bottom), GrassTuft (32); Bark, PalmTrunk |
+| Houses (`kit.HOUSES`, one floor = 4 m wide bay; 3 m floors use 64x48 bays: `--crop 0 0.2 1 0.95 --width 64 --size 48`) | siding (neutral, tintable `Siding__<Tint>`): Siding, SidingBay, SidingDoor, SidingGarage · ranch (painted brick): Ranch, RanchBay, RanchDoor, RanchGarage · mansion (cream stucco + stone plinth): Mansion, MansionBay, MansionEntry, MansionGarage · Picket (32x16, alpha: crop the source to its opaque band, a transparent margin makes the fence float) · WoodFence (32x32 for 2 m x 1.8 m) |
 | Procedural / derived | MarkThin/Wide/Bar (`Tools/texture/marks.py`), `T_Leaves` (LeafCard composited 4x on dark green), `T_Imp_*` (`kit.render_impostor`) |
 
 The first batch (ground, facades, vegetation, signs) came from stylized prompts before the "realistic source"

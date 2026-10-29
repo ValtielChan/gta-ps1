@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 3631677663392337634}
   - component: {fileID: 7815751263155886761}
   - component: {fileID: 1984308203942610214}
+  - component: {fileID: 7256771279948413934}
   m_Layer: 2
   m_Name: Car_W123
   m_TagString: Untagged
@@ -107,12 +108,12 @@ MonoBehaviour:
   damper: 3800
   motorForce: 20000
   brakeForce: 16000
+  engineBrake: 0.08
   topSpeed: 65
   reverseSpeed: 12
   maxSteer: 34
   steerAtTopSpeed: 7
   grip: 0.9
-  engineBrake: 0.08
   friction: 1.6
   slideFriction: 0.4
   handbrakeFriction: 0.3
@@ -146,6 +147,21 @@ MonoBehaviour:
   - 32
   - 44
   - 56
+--- !u!114 &7256771279948413934
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7516987597349717488}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 48b3fb725e932b24e8a3bd0c85946ac6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  material: {fileID: 2100000, guid: 58c4018eb781ab7419acbb7b115b407b, type: 2}
+  size: {x: 2.9870229, y: 5.7385073}
+  offset: {x: 0, y: 0.08, z: 0.16471678}
 --- !u!1001 &3202595969801162002
 PrefabInstance:
   m_ObjectHideFlags: 0

@@ -19,11 +19,12 @@ Talk to Fabien in French.
 | Path | What |
 |---|---|
 | `Tools/citygen/roadnet.py` | Road network generator library (graph → roads, junctions, props, decks) + `Mesh` builder |
-| `Tools/citygen/city_demo.py` | The demo city map (grid, roundabout, elevated ring highway, interchanges) |
-| `Tools/citygen/kit.py` | Art-direction kit: buildings, street props, trees/bushes + billboard LODs |
+| `Tools/citygen/city_demo.py` | The demo city map (grid, roundabout, elevated ring highway, interchanges, residential districts `DISTRICTS` outside the rural loop, hills terrain + wind turbines beyond) |
+| `Tools/citygen/kit.py` | Art-direction kit: buildings, houses (`HOUSES` families: siding bungalows, ranch, mansion), street props, trees/bushes + billboard LODs, wind turbine |
 | `Tools/citygen/da_scene.py` | Compact art-direction test scene (everything in one street corner) |
-| `Tools/citygen/cars.py` | Fabien's car models: `Art/Cars/<Name>.blend` → `Assets/GTA/Cars/<Name>.fbx` (player) or `Assets/GTA/Cars/Traffic/<Name>.fbx` (traffic: W123, W110, TS35 bus) + atlases |
+| `Tools/citygen/cars.py` | Fabien's car models: `Art/Cars/<Name>.blend` → `Assets/GTA/Cars/<Name>.fbx` (player) or `Assets/GTA/Cars/Traffic/<Name>.fbx` (traffic: W123, W110, S5, R5Turbo, Chevelle69, TS35 bus) + atlases |
 | `Tools/citygen/npc.py` | PS1 pedestrians from Fabien's base `Art/NPC/hero.fbx`: load, female body, export → `Assets/GTA/NPC/<name>.fbx` (skill `ps1-npc`) |
+| `Tools/citygen/gear.py`, `Tools/texture/gear_atlas.py` | Event gear (riot helmet, shield, baton, protest sign, paving stone) → `Assets/GTA/NPC/Gear/Gear.fbx`; 512 × 256 atlases body \| gear `T_crs.png`, `T_demo_NN.png`, `T_demo_f_NN.png` (skill `ps1-npc` § E) |
 | `Tools/texture/npc_variants.py` | Outfit / face / skin variants of the NPC atlas: crop → AI region edit → compose, recolor, tint → `T_hero_<Variant>.png` |
 | `Tools/texture/blood.py` | Blood stain atlas `T_Blood.png` (pool, splash, smear, spatter) from a realistic photo of 4 splatters on white |
 | `Tools/texture/car_paint.py` | Paint variants of a traffic car atlas (`T_<Atlas>_<Paint>.png`, body paint only: colored or white body found in the atlas) |
@@ -36,12 +37,14 @@ Talk to Fabien in French.
 | `Assets/GTA/City/`, `Assets/GTA/DA/` | Exported scene FBX + `<Scene>_placements.json` + `<Scene>_peds.json` (pedestrian graph) + `<Scene>_traffic.json` (lane graph) (never edit by hand, regenerate from Tools) |
 | `Assets/GTA/Props/` -> `Assets/GTA/Prefabs/Props/` | One FBX per repeated object (`kit.PREFABS`) -> prefab variants placed by `Editor/PropPlacer.cs` |
 | `Assets/GTA/Textures/` | PS1 textures `T_<MaterialName>.png` (auto point-filtered) |
-| `Assets/GTA/Shaders/` | `PS1Lit` world shader, `PS1Crowd` instanced VAT pedestrians, `PS1Post` dither/quantize full-screen pass |
+| `Assets/GTA/Shaders/` | `PS1Lit` world shader (lightmapped static world, realtime sun without shadows + SH on dynamic objects), `PS1Crowd` instanced VAT pedestrians, `PS1Blob` blob shadow decal, `PS1Post` dither/quantize full-screen pass |
+| `Assets/GTA/Editor/LightingBake.cs`, `Assets/GTA/Scripts/BlobShadow.cs` | Menu GTA > Bake Lighting: GPU lightmaps (1 texel/m, bilinear, Mixed Subtractive sun; world tiles `<Layer>_<i>_<j>` of flat layers get a planar top-down chart in `ImportRules`, markings 0.5, ground 0.5 / far hills 0.2; houses lightmapped, small props cast only); no real-time shadows anywhere, cars / pedestrians / player get PS1 blob quads (`M_Blob`) |
 | `Assets/GTA/Editor/ImportRules.cs` | Import rules: colliders, 32-bit indices, material-by-name → texture convention, one LODGroup per tree |
-| `Assets/GTA/Editor/PropPlacer.cs` | Menu GTA > Place Props In Open Scene: builds prop prefabs and instantiates the scene's placements |
+| `Assets/GTA/Editor/PropPlacer.cs` | Menu GTA > Place Props In Open Scene: builds prop prefabs and instantiates the scene's placements (`*_Rotor` children get `Spin`, not static: wind turbines) |
 | `Assets/GTA/NPC/` | `hero.fbx` (man), `hero_f.fbx` (woman), `Anims/UAL_Standard.fbx` (CC0 mocap), `Skins/M_*.mat`, `Crowd/` (baked crowd data) |
 | `Assets/GTA/Editor/NpcPrefabs.cs` | Menus GTA > Build NPC Crowd (VAT, outfit arrays, ragdoll prefabs) and GTA > Setup Crowd In Open Scene (sidewalk map + `Crowd` object) |
-| `Assets/GTA/Scripts/` | `SimpleCar` (arcade raycast car), `FollowCamera`, `PS1Resolution`, `CrowdSystem` (instanced pedestrians, impacts, ragdolls), `TrafficSystem` (instanced AI cars on the lane graph, signals / stops / yields, physical proxies, wrecks) |
+| `Assets/GTA/Scripts/` | `SimpleCar` (arcade raycast car), `FollowCamera`, `PS1Resolution`, `CrowdSystem` (instanced pedestrians, impacts, ragdolls), `TrafficSystem` (instanced AI cars on the lane graph, signals / stops / yields, physical proxies, wrecks), `CarDamage` (dents + engine smoke on the proxies, not the player) |
+| `Assets/GTA/Scripts/CrowdEvents.cs` | Protests (partial of CrowdSystem): sites found in the sidewalk bitmap, protesters with signs / throwing paving stones, riot police (CRS) shield wall, beatings, tough police that stagger / get back up |
 | `Assets/GTA/Scripts/BloodFX.cs` | Blood (created by CrowdSystem, materials `M_Blood` / `M_BloodSpray` set by Setup Crowd): droplet sprays (particles) and instanced stains on static surfaces: impact splash, splats where bodies hit (`RagdollThud`), smears where they slide, a pool under a body at rest |
 | `Assets/GTA/Scripts/GameAudio.cs`, `CarAudio.cs`, `RagdollThud.cs` | One-shot SFX pool + ambience; player engine (RPM loops cross-faded through a 4-gear box), skid, impacts; ragdoll thuds. Crowd and traffic call `GameAudio.Play` (screams, bystanders, panic, horns, AI crashes, nearest traffic engines) |
 | `Assets/GTA/Editor/AudioSetup.cs` | Menu GTA > Setup Audio In Open Scene: `Audio` object, CarAudio on `Car_*.prefab` (engine set `PlayerEngine`), traffic engine loops |
@@ -99,14 +102,25 @@ Talk to Fabien in French.
 5. ✅ Crowd: ~2400 instanced pedestrians all over the city (VAT + GPU instancing, WebGL friendly): walkers on the
    sidewalk graph (keep right, cross at crosswalks), people on benches and at bus stops, chatting groups; the car
    runs them over (pooled ragdolls thrown by the impact).
-6. ✅ Traffic (`city-traffic`): lane graph + parking spots from the road generator, ~440 instanced cars (W123, W110 in 8 paints, TS35 buses in 6; the player's W123i stays out)
+6. ✅ Traffic (`city-traffic`): lane graph + parking spots from the road generator, ~440 instanced cars (W123, W110, R5 Turbo, Chevelle wagon in 8 paints, Audi S5 and TS35 buses in 6; the player's W123i stays out)
    living around the player (car following, signal phases, all-way stops, yields, roundabout, highway exits /
    merges, passing wrecks, gridlocks dissolved out of sight), ~660 parked cars (street parking lanes, lots); the
    nearest cars are rigidbodies the player can crash into, push and wreck.
 7. ✅ Sound: Fabien's engine pack on the player car (RPM model) and the nearest traffic, ElevenLabs SFX (flow
    "GTA PS1 - sound effects", model eleven_text_to_sound_v2, ~0.5 cent per take, max 1-2 concurrent generations:
    launch one at a time) for crashes, pole hits, body hits, gore, screams, bystanders, panic, horns, skid, ambience.
-8. Next: signal heads showing the phases (`TrafficSystem.Phase`), lane changes / overtaking, more car models, crowd
+8. ✅ Baked lighting for the browser: no real-time shadows (URP main light shadows off, HDR off), lightmaps 1 texel/m
+   (GTA > Bake Lighting, re-run after a city regeneration), blob shadows under every car and pedestrian. The world
+   FBX is tiled (128 m cells per layer, `Mesh.tiles`) so every tile keeps its texel density and culls.
+9. ✅ Suburbs: four residential districts off the rural loop (S/W bungalows in tinted siding with picket fences,
+   E 60s ranch houses, N Mediterranean mansions behind hedges), closed lots (front fences / hedges, wood or chain-link
+   fences between back yards), driveways / walkways, ~330 houses as prefabs, ~600 walkers; rolling green hills
+   (smooth-shaded terrain to 2 km, Bliss style) with 14 spinning wind turbines beyond. Per-layer draw distances
+   (small props 160 m, details 250 m, houses 380 m, fog 450 m); bushes and grass tufts have no collider.
+10. ✅ Protests (`CrowdEvents`): 7 protests in the empty paved lots, ~280 protesters each spilling over sidewalks / streets (12 silly slogans, surging and milling; traffic stops for those on the roadway), 60 CRS
+   with shields / batons, people clubbed on the ground, paving stones thrown; police stagger, get back up, die only
+   when hit hard. UAL stand-in clips (Mixamo throw / strike / curled-up victim when Fabien logs in).
+11. Next: signal heads showing the phases (`TrafficSystem.Phase`), lane changes / overtaking, more car models, crowd
    panic / fleeing, pedestrians obeying the traffic lights, more NPC variants (ages, builds, Mixamo extras), road
    connection fixes Fabien noticed (ask which ones), more districts (residential…), day/night, vertex snapping
    (deliberately postponed).

@@ -42,6 +42,8 @@ Reference scene: `Assets/Scenes/DAScene.unity` (built by `Tools/citygen/da_scene
 - Model **each object alone and check it**: `kit.inspect(names, out_dir)` renders 3/4 close-ups. Parts must touch
   (bench in one piece), geometry follows the real silhouette with few polygons, no detached decal quads floating
   under a mesh, pixels stay square (match the mesh proportions to the photo's aspect; `--trim` keeps it).
+- **Houses** (`kit.house`): walls of 4 m bays from a texture family (`kit.HOUSES`: wall tile, window, door, garage, roof),
+  hip or gable roof with eaves / fascia / soffit, porch or garage wing; prefabs `HouseA/B_<Tint>`, `RanchA/B`, `MansionA/B`.
 - **Repeated objects are prefabs** (`kit.PREFABS`): exported one by one to `Assets/GTA/Props/<Name>.fbx`, placed
   from `<Scene>_placements.json` by `PropPlacer` (Unity menu GTA > Place Props In Open Scene). Unique things
   (buildings with their random shops, fences, hedges, roads) stay in the scene FBX.
@@ -78,8 +80,12 @@ Reference scene: `Assets/Scenes/DAScene.unity` (built by `Tools/citygen/da_scene
 
 ## Rendering (Unity)
 
-- Shader `GTA/PS1Lit` for everything: albedo × tint × vertex color, sun + **hard shadows**, Forward+ point lights,
+- Shader `GTA/PS1Lit` for everything: albedo × tint × vertex color, sun (**no real-time shadows**: the static world is lightmapped by GTA > Bake Lighting at 1 texel/m, bilinear, blob shadows under cars and pedestrians), Forward+ point lights,
   SH ambient, fog. Assigned automatically at FBX import by material name.
+- Draw distances (`PS1Resolution` sets `Camera.layerCullDistances`): layer `SmallProps` 160 m (street furniture,
+  bushes), `Details` 250 m (markings, fences, hedges, wires, driveways, lamps, poles; city tiles by name in
+  `ImportRules`), `Houses` 380 m (`PropPlacer.Layer`); buildings, trees (billboard LODs) and terrain stay. Fog
+  60 -> 450 m hides the pop-in. Cut-out textures must reach their edges where the mesh touches the ground.
 - Internal resolution **360 px high** (one field: `PS1Resolution.targetHeight`) (`PS1Resolution` on the camera drives URP render scale; URP upscales with
   **point** filter, MSAA off).
 - Post: `GTA/PS1Post` full-screen pass (after post-processing, at low res): 4×4 Bayer dither + 32 levels/channel.

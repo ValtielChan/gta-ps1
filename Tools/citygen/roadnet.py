@@ -124,8 +124,9 @@ class Mesh:
     """Unshared-vertex (flat shaded) mesh with one material name per face.
     shade: optional f(position) -> brightness baked into vertex colors (grime / fake AO)."""
 
-    def __init__(self, name, shade=None):
-        self.name, self.shade = name, shade
+    def __init__(self, name, shade=None, smooth=False):
+        self.name, self.shade, self.smooth = name, shade, smooth   # smooth: welded, smooth shaded (terrain); a
+        # callable f(p) -> normal gives exact normals (no seam between tiles)
         self.verts, self.faces, self.uvs, self.mats, self.cols = [], [], [], [], []
 
     def face(self, pts, mat, uvs=None):
@@ -294,6 +295,26 @@ class Mesh:
         self.face(R[0], mat)
         self.face(R[-1][::-1], mat)
 
+    def tiles(self, size=128.0, layer=None):
+        """Split into one Mesh per `size` m cell named '<Name>_<i>_<j>' (faces by centroid): small renderers
+        (frustum culling) whose lightmap charts keep the full texel density. layer(pts) -> name suffix groups faces
+        into separate layers first (city_demo.road_layer: ground / deck / vertical). Empty mesh -> []."""
+        out = {}
+        for f, mat in zip(self.faces, self.mats):
+            pts = [self.verts[i] for i in f]
+            c = sum(pts, Vector((0, 0, 0))) / len(pts)
+            name = '%s%s_%d_%d' % (self.name, layer(pts) if layer else '', math.floor(c.x / size), math.floor(c.y / size))
+            m = out.get(name)
+            if m is None:
+                m = out[name] = Mesh(name, smooth=self.smooth)
+            k = len(m.verts)
+            m.verts += pts
+            m.faces.append(tuple(range(k, k + len(f))))
+            m.uvs += [self.uvs[i] for i in f]
+            m.mats.append(mat)
+            m.cols += [self.cols[i] for i in f]
+        return list(out.values())
+
     def to_object(self, collection):
         ob = bpy.data.objects.new(self.name, self.data())
         collection.objects.link(ob)
@@ -311,6 +332,16 @@ class Mesh:
         col = me.color_attributes.new('Col', 'FLOAT_COLOR', 'CORNER')
         col.data.foreach_set('color', [c for v in self.cols for c in (v, v, v, 1.0)])
         me.color_attributes.active_color = col
+        if self.smooth:
+            import bmesh
+            bm = bmesh.new()
+            bm.from_mesh(me)
+            bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.01)
+            bm.to_mesh(me)
+            bm.free()
+            me.polygons.foreach_set('use_smooth', [True] * len(me.polygons))
+            if callable(self.smooth):
+                me.normals_split_custom_set_from_vertices([tuple(self.smooth(v.co)) for v in me.vertices])
         me.update()
         return me
 

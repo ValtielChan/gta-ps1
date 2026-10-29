@@ -14,8 +14,8 @@ import sys
 
 NAMES = {'crash': 'Crash', 'bump': 'Bump', 'pole': 'Pole', 'bodyhit': 'BodyHit', 'splat': 'Splat', 'bodyland': 'BodyLand',
          'scream_m': 'ScreamM', 'scream_f': 'ScreamF', 'shout': 'Shout', 'panic': 'Panic', 'horn': 'Horn',
-         'skid': 'Skid', 'ambience': 'Ambience'}
-LOOPS = {'skid', 'ambience'}
+         'skid': 'Skid', 'ambience': 'Ambience', 'baton': 'Baton', 'armor': 'Armor', 'rock': 'Rock', 'protest': 'Protest'}
+LOOPS = {'skid', 'ambience', 'protest'}
 MAX = {'panic': 6.0, 'horn': 2.0}   # seconds kept of a one-shot (default 2.5), faded out over the last 0.3 s
 OUT = os.path.join(os.path.dirname(__file__), '..', '..', 'Assets', 'GTA', 'Sounds', 'SFX')
 

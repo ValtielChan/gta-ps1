@@ -16,16 +16,48 @@ using UnityEngine.Playables;
 //     20 fps (Crowd/<fbx>_VatPos / _VatNrm), + the body mesh carrying its vertex index (Crowd/<fbx>_Body);
 //   - the ragdoll prefab Prefabs/NPC/<fbx>_Ragdoll.prefab (Animator for posing + 11 rigidbodies / joints);
 //   - Crowd/<fbx>.asset (CrowdCharacter) tying it together.
+// Event characters (Kits: riot police, protesters) are a body FBX + gear meshes (NPC/Gear/Gear.fbx, Tools/citygen/
+// gear.py) glued to its bones and skinned to them, with 512 x 256 outfits (body atlas | gear, Tools/texture/gear_atlas.py);
+// they bake only the clips they play (the others get one frame) and never walk the streets.
 // Menu GTA > Setup Crowd In Open Scene: bakes the sidewalk bitmap of the scene (Crowd/<scene>_walk.bytes) and puts a
 // "Crowd" object (CrowdSystem with every character) in the scene.
 static class NpcPrefabs
 {
     const string NpcDir = "Assets/GTA/NPC", CrowdDir = NpcDir + "/Crowd", SkinDir = NpcDir + "/Skins";
     const string PrefabDir = "Assets/GTA/Prefabs/NPC", AnimLib = NpcDir + "/Anims/UAL_Standard.fbx";
-    static readonly string[] Clips = { "Idle_Loop", "Walk_Loop", "Sitting_Idle_Loop", "Sitting_Talking_Loop", "Idle_Talking_Loop" };   // = CrowdSystem.Clip
+    static readonly string[] Clips = { "Idle_Loop", "Walk_Loop", "Sitting_Idle_Loop", "Sitting_Talking_Loop", "Idle_Talking_Loop",
+        "Idle_Torch_Loop", "Sword_Idle", "Sword_Attack", "Spell_Simple_Shoot", "Crouch_Idle_Loop", "Death01", "Hit_Chest" };   // = CrowdSystem.Clip
     const float Fps = 20f;
+    const string GearFbx = NpcDir + "/Gear/Gear.fbx";
 
-    static string[] Characters => Directory.GetFiles(NpcDir, "*.fbx").Select(p => p.Replace('\\', '/')).OrderBy(p => p).ToArray();
+    // gear placed in the character's root space (offset from the bone, rotation) on the first frame of `pose`
+    // (aPose: the model's rest pose), then skinned rigidly to `bone`
+    struct Gear
+    {
+        public string mesh; public HumanBodyBones bone; public CrowdSystem.Clip pose; public bool aPose; public Vector3 pos, rot;
+        public Gear(string mesh, HumanBodyBones bone, CrowdSystem.Clip pose, Vector3 pos, Vector3 rot, bool aPose = false)
+        { this.mesh = mesh; this.bone = bone; this.pose = pose; this.pos = pos; this.rot = rot; this.aPose = aPose; }
+    }
+    class Kit { public string name, body; public Gear[] gear; public CrowdSystem.Clip[] clips; }
+    static readonly CrowdSystem.Clip[] Walker = { CrowdSystem.Clip.Idle, CrowdSystem.Clip.Walk, CrowdSystem.Clip.Sit, CrowdSystem.Clip.SitTalk,
+        CrowdSystem.Clip.Talk, CrowdSystem.Clip.Throw, CrowdSystem.Clip.Cower };   // also the protesters without a sign and the beaten ones
+    static readonly Kit[] Kits =
+    {
+        new Kit { name = "crs", body = "hero", clips = new[] { CrowdSystem.Clip.Idle, CrowdSystem.Clip.Walk, CrowdSystem.Clip.Guard, CrowdSystem.Clip.Strike, CrowdSystem.Clip.Fall, CrowdSystem.Clip.Stagger },
+            gear = new[] {
+                new Gear("Helmet", HumanBodyBones.Head, 0, new Vector3(0, 0.1f, 0.01f), Vector3.zero, true),
+                new Gear("Shield", HumanBodyBones.LeftLowerArm, CrowdSystem.Clip.Guard, new Vector3(0.05f, 0.05f, 0.2f), Vector3.zero),
+                new Gear("Baton", HumanBodyBones.RightHand, CrowdSystem.Clip.Guard, new Vector3(0, 0, 0.06f), new Vector3(-30, 0, 0)) } },
+        new Kit { name = "demo", body = "hero", clips = new[] { CrowdSystem.Clip.Idle, CrowdSystem.Clip.Sign },
+            gear = new[] { new Gear("Sign", HumanBodyBones.LeftHand, CrowdSystem.Clip.Sign, new Vector3(0, 0, 0.06f), Vector3.zero) } },
+        new Kit { name = "demo_f", body = "hero_f", clips = new[] { CrowdSystem.Clip.Idle, CrowdSystem.Clip.Sign },
+            gear = new[] { new Gear("Sign", HumanBodyBones.LeftHand, CrowdSystem.Clip.Sign, new Vector3(0, 0, 0.06f), Vector3.zero) } },
+    };
+
+    static string[] Bodies => Directory.GetFiles(NpcDir, "*.fbx").Select(p => p.Replace('\\', '/')).OrderBy(p => p).ToArray();
+    // every crowd character: the bodies as they are (walkers), then the kits
+    static Kit[] Characters => Bodies.Select(f => new Kit { name = Path.GetFileNameWithoutExtension(f), body = Path.GetFileNameWithoutExtension(f), gear = new Gear[0], clips = Walker })
+        .Concat(Kits).ToArray();
 
     [MenuItem("GTA/Build NPC Crowd")]
     public static void Build()
@@ -35,11 +67,12 @@ static class NpcPrefabs
         Directory.CreateDirectory(CrowdDir);
         var all = AssetDatabase.LoadAllAssetsAtPath(AnimLib).OfType<AnimationClip>().ToArray();
         var clips = Clips.Select(n => all.First(c => c.name == n)).ToArray();
-        var names = Characters.Select(Path.GetFileNameWithoutExtension).ToArray();
-        foreach (var fbx in Characters)
+        var names = Characters.Select(k => k.name).ToArray();
+        foreach (var kit in Characters)
         {
-            string name = Path.GetFileNameWithoutExtension(fbx);
-            var model = AssetDatabase.LoadAssetAtPath<GameObject>(fbx);
+            string name = kit.name;
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(NpcDir + "/" + kit.body + ".fbx");
+            var skinned = kit.gear.Length > 0 ? Save(Equip(model, kit.gear, clips), CrowdDir + "/" + name + "_Skinned.asset") : null;
             var template = model.GetComponentInChildren<SkinnedMeshRenderer>().sharedMaterial;
             var texs = SkinTextures(name, names);
             var skins = texs.Select(t => SkinMaterial(t, template)).ToArray();
@@ -48,7 +81,9 @@ static class NpcPrefabs
             cc.skins = skins;
             cc.clips = clips;
             cc.fps = Fps;
-            BakeVat(model, clips, out var pos, out var nrm, out cc.clipStart, out cc.clipFrames, out var body);
+            cc.eventOnly = kit.gear.Length > 0;
+            var full = clips.Select((c, i) => kit.clips.Contains((CrowdSystem.Clip)i)).ToArray();
+            BakeVat(model, skinned, clips, full, out var pos, out var nrm, out cc.clipStart, out cc.clipFrames, out var body, out cc.lieHips, out cc.lieHead);
             pos = Save(pos, CrowdDir + "/" + name + "_VatPos.asset");
             nrm = Save(nrm, CrowdDir + "/" + name + "_VatNrm.asset");
             cc.mesh = Save(body, CrowdDir + "/" + name + "_Body.asset");
@@ -61,7 +96,7 @@ static class NpcPrefabs
             mat.enableInstancing = true;
             EditorUtility.SetDirty(mat);
             cc.material = mat;
-            cc.ragdoll = BuildRagdoll(model, name, skins[0]);
+            cc.ragdoll = BuildRagdoll(model, name, skins[0], skinned);
             EditorUtility.SetDirty(cc);
             Debug.Log($"{name}: {skins.Length} outfits, VAT {pos.width}x{pos.height}");
         }
@@ -71,6 +106,7 @@ static class NpcPrefabs
     static T Save<T>(T obj, string path) where T : Object
     {
         var old = AssetDatabase.LoadAssetAtPath<T>(path);
+        if (old is Mesh) { AssetDatabase.DeleteAsset(path); old = null; }   // CopySerialized keeps a mesh's old vertex data
         if (!old) { AssetDatabase.CreateAsset(obj, path); return obj; }
         EditorUtility.CopySerialized(obj, old);
         old.name = Path.GetFileNameWithoutExtension(path);
@@ -111,7 +147,10 @@ static class NpcPrefabs
 
     // Plays each Humanoid clip on the body (PlayableGraph, in edit mode), bakes the skinned mesh every frame:
     // positions (half floats) and normals of vertex v at frame f go to texel (v, row). Root space = the prefab root.
-    static void BakeVat(GameObject model, AnimationClip[] clips, out Texture2D pos, out Texture2D nrm, out int[] start, out int[] frames, out Mesh body)
+    // full[c] false: the clip is not played by this character, one frame only. lieHips / lieHead: where the last frame
+    // of the fall clip puts the hips and the head (root space), to stand a knocked down body back up from its ragdoll.
+    static void BakeVat(GameObject model, Mesh skinned, AnimationClip[] clips, bool[] full, out Texture2D pos, out Texture2D nrm, out int[] start, out int[] frames,
+        out Mesh body, out Vector3 lieHips, out Vector3 lieHead)
     {
         var go = (GameObject)Object.Instantiate(model);
         try
@@ -122,11 +161,13 @@ static class NpcPrefabs
             anim.applyRootMotion = false;
             anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             var smr = go.GetComponentInChildren<SkinnedMeshRenderer>();
+            if (skinned) smr.sharedMesh = skinned;
             var src = smr.sharedMesh;
             int V = src.vertexCount, H = 0;
             start = new int[clips.Length];
             frames = new int[clips.Length];
-            for (int c = 0; c < clips.Length; c++) { start[c] = H; frames[c] = Mathf.Max(1, Mathf.RoundToInt(clips[c].length * Fps)); H += frames[c]; }
+            lieHips = lieHead = Vector3.zero;
+            for (int c = 0; c < clips.Length; c++) { start[c] = H; frames[c] = full[c] ? Mathf.Max(1, Mathf.RoundToInt(clips[c].length * Fps)) : 1; H += frames[c]; }
             var P = new ushort[V * H * 4];
             var N = new Color32[V * H];
             var first = new Vector3[V];
@@ -143,8 +184,14 @@ static class NpcPrefabs
                 output.SetSourcePlayable(cp);
                 for (int f = 0; f < frames[c]; f++)
                 {
-                    cp.SetTime(f * clips[c].length / frames[c]);   // loops: the last frame is not the first one again
+                    bool lying = c == (int)CrowdSystem.Clip.Fall && f == frames[c] - 1 && frames[c] > 1;
+                    cp.SetTime(lying ? clips[c].length : f * clips[c].length / frames[c]);   // loops: the last frame is not the first one again
                     g.Evaluate();
+                    if (lying)
+                    {
+                        lieHips = anim.GetBoneTransform(HumanBodyBones.Hips).position;
+                        lieHead = anim.GetBoneTransform(HumanBodyBones.Head).position;
+                    }
                     smr.BakeMesh(baked, true);
                     baked.GetVertices(vs);
                     baked.GetNormals(ns);
@@ -180,15 +227,78 @@ static class NpcPrefabs
             body.SetUVs(0, src.uv);
             body.SetUVs(1, Enumerable.Range(0, V).Select(i => new Vector2(i, 0)).ToArray());
             body.SetTriangles(src.triangles, 0);
-            body.bounds = new Bounds(new Vector3(0, 1, 0), new Vector3(2, 2.2f, 2));
+            body.bounds = new Bounds(new Vector3(0, 1.2f, 0), new Vector3(3, 3f, 3));   // signs reach 2.6 m
             body.UploadMeshData(true);
         }
         finally { Object.DestroyImmediate(go); }
     }
 
+    // The body mesh + the gear meshes skinned rigidly to their bone; body UVs squeezed into the left half of the atlas,
+    // gear UVs (0..1 in the gear half) into the right half. A gear vertex is placed in root space on its pose and
+    // stored in mesh space through the inverse of that pose's skinning matrix: it keeps its placement relative to the bone.
+    static Mesh Equip(GameObject model, Gear[] gear, AnimationClip[] clips)
+    {
+        var go = (GameObject)Object.Instantiate(model);
+        var g = PlayableGraph.Create("equip");
+        try
+        {
+            go.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            var anim = go.GetComponent<Animator>();
+            anim.runtimeAnimatorController = null;
+            anim.applyRootMotion = false;
+            anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;   // (an unseen instance is not posed otherwise)
+            var smr = go.GetComponentInChildren<SkinnedMeshRenderer>();
+            var src = smr.sharedMesh;
+            // gear meshes with their object transform in the FBX (the axis conversion may sit there)
+            var gearRoot = AssetDatabase.LoadAssetAtPath<GameObject>(GearFbx).transform;
+            var gearMeshes = gearRoot.GetComponentsInChildren<MeshFilter>().ToDictionary(f => f.sharedMesh.name, f => (f.sharedMesh, gearRoot.worldToLocalMatrix * f.transform.localToWorldMatrix));
+            var v = new List<Vector3>(src.vertices);
+            var n = new List<Vector3>(src.normals);
+            var uv = src.uv.Select(t => new Vector2(t.x * 0.5f, t.y)).ToList();
+            var bw = new List<BoneWeight>(src.boneWeights);
+            var tris = new List<int>(src.triangles);
+            g.SetTimeUpdateMode(DirectorUpdateMode.Manual);
+            var output = AnimationPlayableOutput.Create(g, "equip", anim);
+            // rest pose first (before any clip moved the bones), then the clip poses
+            foreach (var gr in gear.OrderBy(x => x.aPose ? 0 : 1))
+            {
+                var (gm, own) = gearMeshes[gr.mesh];
+                if (!gr.aPose)
+                {
+                    var cp = AnimationClipPlayable.Create(g, clips[(int)gr.pose]);
+                    output.SetSourcePlayable(cp);
+                    cp.SetTime(0);
+                    g.Evaluate();
+                }
+                var bone = anim.GetBoneTransform(gr.bone);
+                int bi = System.Array.IndexOf(smr.bones, bone);
+                var place = Matrix4x4.TRS(bone.position + gr.pos, Quaternion.Euler(gr.rot), Vector3.one);
+                // skinning maps mesh space to the renderer's space: renderer^-1 * bone * bindpose (hero_f's renderer is scaled 0.01)
+                var skin = smr.transform.worldToLocalMatrix * bone.localToWorldMatrix * src.bindposes[bi];
+                var m = skin.inverse * smr.transform.worldToLocalMatrix * place * own;
+                int o = v.Count;
+                v.AddRange(gm.vertices.Select(p => m.MultiplyPoint3x4(p)));
+                n.AddRange(gm.normals.Select(d => m.MultiplyVector(d).normalized));
+                uv.AddRange(gm.uv.Select(t => new Vector2(0.5f + t.x * 0.5f, t.y)));
+                bw.AddRange(Enumerable.Repeat(new BoneWeight { boneIndex0 = bi, weight0 = 1 }, gm.vertexCount));
+                tris.AddRange(gm.triangles.Select(i => i + o));
+            }
+            var mesh = new Mesh { name = model.name + "_Equipped", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+            mesh.SetVertices(v);
+            mesh.SetNormals(n);
+            mesh.SetUVs(0, uv);
+            mesh.boneWeights = bw.ToArray();
+            mesh.bindposes = src.bindposes;
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+        finally { g.Destroy(); Object.DestroyImmediate(go); }
+    }
+
     // ---- ragdoll ----
 
-    static GameObject BuildRagdoll(GameObject model, string name, Material skin)
+    static GameObject BuildRagdoll(GameObject model, string name, Material skin, Mesh skinned)
     {
         var go = (GameObject)PrefabUtility.InstantiatePrefab(model);
         go.name = name + "_Ragdoll";
@@ -199,6 +309,7 @@ static class NpcPrefabs
         anim.enabled = false;
         var smr = go.GetComponentInChildren<SkinnedMeshRenderer>();
         smr.sharedMaterial = skin;
+        if (skinned) smr.sharedMesh = skinned;
         smr.updateWhenOffscreen = true;
         Transform B(HumanBodyBones b) => anim.GetBoneTransform(b);
         var torsoEnd = B(HumanBodyBones.Neck) ?? B(HumanBodyBones.Head);
@@ -266,11 +377,12 @@ static class NpcPrefabs
         var map = BakeWalkMap(scene.name);
         foreach (var n in new[] { "NPCs", "Crowd" }) { var old = GameObject.Find(n); if (old) Object.DestroyImmediate(old); }
         var crowd = new GameObject("Crowd").AddComponent<CrowdSystem>();
-        crowd.characters = Characters.Select(f => AssetDatabase.LoadAssetAtPath<CrowdCharacter>(CrowdDir + "/" + Path.GetFileNameWithoutExtension(f) + ".asset")).ToArray();
+        crowd.characters = Characters.Select(k => AssetDatabase.LoadAssetAtPath<CrowdCharacter>(CrowdDir + "/" + k.name + ".asset")).ToArray();
         crowd.walkMap = map;
         crowd.pedGraph = AssetDatabase.LoadAssetAtPath<TextAsset>("Assets/GTA/City/" + scene.name + "_peds.json");   // city_demo.export_peds
         crowd.spots = Spots();
         BloodMaterials(crowd);
+        ProtestAssets(crowd);
         EditorSceneManager.MarkSceneDirty(scene);
         EditorSceneManager.SaveScene(scene);
         Debug.Log($"crowd: {crowd.spots.Length} seats / waiting spots");
@@ -300,7 +412,24 @@ static class NpcPrefabs
         AssetDatabase.SaveAssets();
         crowd.bloodStain = stain;
         crowd.bloodSpray = spray;
+        crowd.blob = LightingBake.Blob();
         EditorUtility.SetDirty(crowd);
+    }
+
+    // thrown paving stones: the Gear.fbx "Pave" mesh, PS1Lit concrete drawn instanced; the protest chant (GameAudio)
+    static void ProtestAssets(CrowdSystem crowd)
+    {
+        crowd.paveMesh = AssetDatabase.LoadAllAssetsAtPath(GearFbx).OfType<Mesh>().FirstOrDefault(m => m.name == "Pave");
+        string path = "Assets/GTA/Materials/M_Pave.mat";
+        var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (!m) { m = new Material(Shader.Find("GTA/PS1Lit")); AssetDatabase.CreateAsset(m, path); }
+        m.SetTexture("_BaseMap", AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/GTA/Textures/T_Concrete.png"));
+        m.SetColor("_BaseColor", new Color(0.75f, 0.72f, 0.7f));
+        m.enableInstancing = true;
+        EditorUtility.SetDirty(m);
+        crowd.paveMaterial = m;
+        var audio = Object.FindAnyObjectByType<GameAudio>();
+        if (audio) crowd.protestLoop = audio.protest;
     }
 
     // Seats of the placed benches and bus stops (kit.bench / kit.bus_stop: the sitter faces the prop's +Z, seat 0.46 m
@@ -333,7 +462,8 @@ static class NpcPrefabs
     {
         const float cellSize = 0.5f;
         var city = GameObject.Find("CityDemo") ?? GameObject.Find("DAScene");
-        var bounds = city.GetComponentsInChildren<MeshRenderer>().Select(r => r.bounds).Aggregate((a, b) => { a.Encapsulate(b); return a; });
+        var bounds = city.GetComponentsInChildren<MeshRenderer>().Where(r => !r.name.StartsWith("Ground"))   // not the hills
+            .Select(r => r.bounds).Aggregate((a, b) => { a.Encapsulate(b); return a; });
         int w = Mathf.CeilToInt(bounds.size.x / cellSize), h = Mathf.CeilToInt(bounds.size.z / cellSize);
         float minX = bounds.min.x, minZ = bounds.min.z, top = bounds.max.y + 5;
         var bits = new byte[(w * h + 7) / 8];

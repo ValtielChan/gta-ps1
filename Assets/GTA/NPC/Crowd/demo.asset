@@ -1,0 +1,49 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7d5d8c37835cbf14582002732aff25d3, type: 3}
+  m_Name: demo
+  m_EditorClassIdentifier: 
+  mesh: {fileID: 4300000, guid: b3d815d2f02035c479c019de05dfce04, type: 2}
+  material: {fileID: 2100000, guid: 239ebfb8f0757504bb676ba728e57e77, type: 2}
+  skins:
+  - {fileID: 2100000, guid: efaf12aeb95ff3a4a93c1da30127eee6, type: 2}
+  - {fileID: 2100000, guid: 4fce6bd8a932a06469200efe5691474b, type: 2}
+  - {fileID: 2100000, guid: 9e912cfe0dede1d40b2abd9f8925d4ef, type: 2}
+  - {fileID: 2100000, guid: 5960057770950ef4ca1a51d9cde1e56e, type: 2}
+  - {fileID: 2100000, guid: b1b3a804ed8da1a4393c77755f33ac14, type: 2}
+  - {fileID: 2100000, guid: 9259e4365ad14164baf813dd9f88c7fc, type: 2}
+  - {fileID: 2100000, guid: ef4a72d996756e646877e8dc530511ee, type: 2}
+  - {fileID: 2100000, guid: d233a29df5eac2a41bc430b39c0b802c, type: 2}
+  - {fileID: 2100000, guid: a0c61eec30f3a324b9d72b15bfeacda8, type: 2}
+  - {fileID: 2100000, guid: 3ccf7c54e09a30b4ca29313cab2d2c3a, type: 2}
+  - {fileID: 2100000, guid: c5f9d25680c6a79408f1d04e86aa6f09, type: 2}
+  - {fileID: 2100000, guid: fbc2f8775a7ffd6408b0365abeb79867, type: 2}
+  clipStart: 0000000032000000330000003400000035000000360000004f0000005000000051000000520000005300000054000000
+  clipFrames: 320000000100000001000000010000000100000019000000010000000100000001000000010000000100000001000000
+  clips:
+  - {fileID: 4925837963642883786, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: -8349492526526354690, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: 8641533986716418156, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: 1237075774167146373, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: -1229897029741140301, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: -5237871509690145260, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: -7788140712200663775, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: -3670792985097887251, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: -6811081637106142684, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: -359718019515549578, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: 1038164469866789310, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  - {fileID: -2547592662905567392, guid: e01e9e4c25c05c2488ae07e8e3b4e129, type: 3}
+  fps: 20
+  eventOnly: 1
+  lieHips: {x: 0, y: 0, z: 0}
+  lieHead: {x: 0, y: 0, z: 0}
+  ragdoll: {fileID: 8104010636816468402, guid: 877ab1f889d72e549b44d09fd7474c5b, type: 3}
